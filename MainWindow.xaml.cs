@@ -114,6 +114,46 @@ public partial class MainWindow : Window
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter,
         int x, int y, int cx, int cy, uint flags);
 
+    private const uint GW_HWNDLAST = 1;
+    private const uint GW_HWNDPREV = 3;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetTopWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder sb, int max);
+
+    private bool _allowZOrderChange;
+
+    /// <summary>
+    /// Walks the z-order from the bottom up and returns the lowest window
+    /// that is not part of the desktop itself (Progman/WorkerW). Inserting
+    /// the widget below that window pins it directly above the wallpaper —
+    /// plain HWND_BOTTOM would put it UNDER the wallpaper window, invisible.
+    /// </summary>
+    private IntPtr FindLowestNonDesktopWindow(IntPtr own)
+    {
+        IntPtr w = GetWindow(GetTopWindow(IntPtr.Zero), GW_HWNDLAST);
+        var sb = new System.Text.StringBuilder(64);
+        int guard = 0;
+        while (w != IntPtr.Zero && guard++ < 500)
+        {
+            if (w != own)
+            {
+                sb.Clear();
+                GetClassName(w, sb, 64);
+                string cls = sb.ToString();
+                if (cls != "Progman" && cls != "WorkerW")
+                    return w;
+            }
+            w = GetWindow(w, GW_HWNDPREV);
+        }
+        return IntPtr.Zero;
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -196,13 +236,13 @@ public partial class MainWindow : Window
             // the StateChanged handler catches whatever bypasses this message.
             handled = true;
         }
-        else if (msg == WM_WINDOWPOSCHANGING && _embedded)
+        else if (msg == WM_WINDOWPOSCHANGING && _embedded && !_allowZOrderChange)
         {
-            // Pinned to desktop: force every z-order change back to the bottom
-            // so the widget never rises above other windows.
+            // Pinned to desktop: freeze the z-order so clicks can't raise the
+            // widget above other windows (its position above the wallpaper is
+            // set once in ApplyEmbedded).
             var wp = Marshal.PtrToStructure<WINDOWPOS>(lParam);
-            wp.hwndInsertAfter = HWND_BOTTOM;
-            wp.flags &= ~SWP_NOZORDER;
+            wp.flags |= SWP_NOZORDER;
             Marshal.StructureToPtr(wp, lParam, false);
         }
         return IntPtr.Zero;
@@ -458,9 +498,13 @@ public partial class MainWindow : Window
 
         if (_embedded)
         {
-            // Send to the bottom of the z-order; the WndProc hook keeps it there.
-            SetWindowPos(handle, HWND_BOTTOM, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            // Pin just above the desktop/wallpaper windows (NOT absolute
+            // bottom — that hides the widget behind the wallpaper).
+            IntPtr above = FindLowestNonDesktopWindow(handle);
+            _allowZOrderChange = true;
+            SetWindowPos(handle, above != IntPtr.Zero ? above : HWND_BOTTOM,
+                0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            _allowZOrderChange = false;
         }
     }
 
