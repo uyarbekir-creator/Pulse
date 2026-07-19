@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>InternetSpeedWidget</AssemblyName>
+    <RootNamespace>InternetSpeedWidget</RootNamespace>
+    <Version>1.1.0</Version>
+    <!-- Avoid WinForms/WPF ambiguous type warnings being treated as errors -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- TraceEvent ships native DLLs; keep the published exe single-file -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ETW tracing for the experimental per-app bandwidth monitor -->
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.16" />
+  </ItemGroup>
+
+</Project>
