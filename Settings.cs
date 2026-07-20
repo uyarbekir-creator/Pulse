@@ -147,8 +147,24 @@ public class Settings
     {
         try
         {
-            if (!Directory.Exists(AppDataDir) && Directory.Exists(LegacyAppDataDir))
-                Directory.Move(LegacyAppDataDir, AppDataDir);
+            if (!Directory.Exists(LegacyAppDataDir))
+                return;
+
+            // A merely-existing AppDataDir isn't proof the new folder is
+            // already in use: CrashLogger.Log() calls Directory.CreateDirectory
+            // on this same path, and its handlers are wired up before
+            // Settings.Load() ever runs (see App.xaml.cs OnStartup), so an
+            // early startup exception can pre-create an empty Pulse folder
+            // and silently defeat a plain existence check, stranding the
+            // user's real settings/history under the old folder name.
+            if (Directory.Exists(AppDataDir))
+            {
+                if (Directory.EnumerateFileSystemEntries(AppDataDir).Any())
+                    return; // already has real data under the new name; don't clobber it
+                Directory.Delete(AppDataDir);
+            }
+
+            Directory.Move(LegacyAppDataDir, AppDataDir);
         }
         catch
         {
