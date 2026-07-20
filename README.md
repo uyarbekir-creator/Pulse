@@ -10,7 +10,7 @@ An optional AIO mode adds live CPU, RAM, GPU, and Disk stats alongside it.
 
 ## Download
 
-Grab the latest exe from **[Releases](https://github.com/uyarbekir-creator/InternetSpeedWidget/releases)**
+Grab the latest exe from **[Releases](https://github.com/uyarbekir-creator/Pulse/releases)**
 — no installer, just run it. Windows SmartScreen may warn about an
 unrecognized app (the exe isn't code-signed): click *More info → Run anyway*.
 
