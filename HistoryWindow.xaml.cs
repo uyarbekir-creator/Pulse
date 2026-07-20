@@ -1,7 +1,7 @@
 using System.Windows;
 using Media = System.Windows.Media;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 public partial class HistoryWindow : Window
 {

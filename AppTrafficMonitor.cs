@@ -5,7 +5,7 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Experimental: uses ETW (the Microsoft-Windows-Kernel-Network provider,
@@ -15,7 +15,7 @@ namespace InternetSpeedWidget;
 /// </summary>
 public class AppTrafficMonitor : IDisposable
 {
-    private const string SessionName = "InternetSpeedWidget-NetTrace";
+    private const string SessionName = "Pulse-NetTrace";
 
     // Kernel-Network event ids: TCPv4/v6 send+recv, UDPv4/v6 send+recv.
     private static readonly HashSet<int> DataEventIds = new() { 10, 11, 26, 27, 42, 43, 58, 59 };

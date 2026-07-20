@@ -1,6 +1,6 @@
 using System.Net.NetworkInformation;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Samples the byte counters of the active physical network interface(s) and

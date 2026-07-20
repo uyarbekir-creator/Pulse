@@ -2,7 +2,7 @@ using System.IO;
 using System.Media;
 using System.Windows.Threading;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Experimental: plays subtle Geiger-counter clicks whose rate follows the

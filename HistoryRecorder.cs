@@ -1,11 +1,11 @@
 using System.IO;
 using System.Text.Json;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Records per-minute averages of speed and ping for the last 24 hours,
-/// persisted to %APPDATA%\InternetSpeedWidget\history.json so the chart
+/// persisted to %APPDATA%\Pulse\history.json so the chart
 /// survives restarts.
 /// </summary>
 public class HistoryRecorder

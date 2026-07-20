@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Detects whether the foreground window is running fullscreen on the same

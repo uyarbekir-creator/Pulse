@@ -1,6 +1,6 @@
 using System.Net.NetworkInformation;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Shared ICMP ping helper: send one ping, get back round-trip ms or null on

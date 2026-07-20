@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Runtime.InteropServices;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Draws the system-tray icons: either the static ↓/↑ arrows, or the live

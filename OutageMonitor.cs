@@ -1,12 +1,12 @@
 using System.IO;
 using System.Windows.Threading;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Experimental: pings every 5 seconds and detects internet outages
 /// (3 consecutive failures). Outages are appended to
-/// %APPDATA%\InternetSpeedWidget\outages.log and a Recovered event fires
+/// %APPDATA%\Pulse\outages.log and a Recovered event fires
 /// when the connection comes back.
 /// </summary>
 public class OutageMonitor : IDisposable

@@ -2,12 +2,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 public partial class App : System.Windows.Application
 {
     private Mutex? _singleInstanceMutex;
-    private const string MutexName = "InternetSpeedWidget_SingleInstance_{4F2A1C6E-9B3D-4E7A-8C1F-2A5B6C7D8E9F}";
+    private const string MutexName = "Pulse_SingleInstance_{4F2A1C6E-9B3D-4E7A-8C1F-2A5B6C7D8E9F}";
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -39,8 +39,8 @@ public partial class App : System.Windows.Application
             if (!acquired)
             {
                 System.Windows.MessageBox.Show(
-                    "Internet Speed Widget is already running (check the system tray).",
-                    "Internet Speed Widget",
+                    "Pulse is already running (check the system tray).",
+                    "Pulse",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 Shutdown();

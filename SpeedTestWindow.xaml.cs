@@ -3,7 +3,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Windows;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 public partial class SpeedTestWindow : Window
 {

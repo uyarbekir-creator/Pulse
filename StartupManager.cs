@@ -4,7 +4,7 @@ using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Manages "Start with Windows".
@@ -18,8 +18,14 @@ namespace InternetSpeedWidget;
 public static class StartupManager
 {
     private const string RunKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
-    private const string ValueName = "InternetSpeedWidget";
-    private const string TaskName = "InternetSpeedWidget";
+    private const string ValueName = "Pulse";
+    private const string TaskName = "Pulse";
+
+    // Pre-rename names (the app was called Internet Speed Widget). Cleaned
+    // up by MigrateRenameIfNeeded() so the rename doesn't leave a stale
+    // duplicate autostart entry or silently drop the user's preference.
+    private const string LegacyValueName = "InternetSpeedWidget";
+    private const string LegacyTaskName = "InternetSpeedWidget";
 
     /// <summary>Full path to the running executable.</summary>
     public static string? ExePath => Environment.ProcessPath;
@@ -81,8 +87,58 @@ public static class StartupManager
     /// </summary>
     public static void MigrateIfNeeded()
     {
+        MigrateRenameIfNeeded();
         if (RunKeyExists() && !TaskExists() && IsElevated && CreateTask())
             RemoveRunKey();
+    }
+
+    /// <summary>
+    /// One-time migration from the app's old name (InternetSpeedWidget) to
+    /// Pulse: re-registers autostart under the new task/value name (carrying
+    /// the user's existing preference over) and removes the old one, so the
+    /// rename doesn't silently disable "Start with Windows" or leave a
+    /// stale duplicate entry pointing at a since-deleted exe.
+    /// </summary>
+    private static void MigrateRenameIfNeeded()
+    {
+        bool legacyTask = LegacyTaskExists();
+        bool legacyRunKey = LegacyRunKeyExists();
+        if (!legacyTask && !legacyRunKey)
+            return;
+
+        if (!TaskExists() && !RunKeyExists())
+            SetEnabled(true);
+
+        if (legacyTask)
+            RunSchtasks($"/Delete /TN \"{LegacyTaskName}\" /F");
+        if (legacyRunKey)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
+                key?.DeleteValue(LegacyValueName, throwOnMissingValue: false);
+            }
+            catch
+            {
+                // Ignore registry access failures.
+            }
+        }
+    }
+
+    private static bool LegacyTaskExists() =>
+        RunSchtasks($"/Query /TN \"{LegacyTaskName}\"") == 0;
+
+    private static bool LegacyRunKeyExists()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+            return key?.GetValue(LegacyValueName) is string s && !string.IsNullOrEmpty(s);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     // ------------------------------------------------------------ Run key
@@ -189,7 +245,7 @@ public static class StartupManager
                 </Task>
                 """;
 
-            string tempPath = Path.Combine(Path.GetTempPath(), "InternetSpeedWidget-task.xml");
+            string tempPath = Path.Combine(Path.GetTempPath(), "Pulse-task.xml");
             File.WriteAllText(tempPath, xml, Encoding.Unicode);
             try
             {

@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 public enum SpeedUnit
 {
@@ -34,6 +34,23 @@ public enum DockCorner
     BottomRight
 }
 
+public enum GpuBackend
+{
+    Generic,   // "GPU Engine" performance counters, any vendor
+    Nvidia     // nvidia-smi.exe, NVIDIA only but more precise
+}
+
+/// <summary>Display labels for <see cref="GpuBackend"/>, shared like
+/// <see cref="DockCornerOptions"/> so UI and enum can't drift apart.</summary>
+public static class GpuBackendOptions
+{
+    public static readonly (GpuBackend Backend, string Label)[] All =
+    {
+        (GpuBackend.Generic, "Generic (Windows counters)"),
+        (GpuBackend.Nvidia, "NVIDIA (nvidia-smi)"),
+    };
+}
+
 /// <summary>Display labels for <see cref="DockCorner"/>, shared by the widget's
 /// dock menus and the settings window's combo box so they can't drift apart.</summary>
 public static class DockCornerOptions
@@ -49,7 +66,7 @@ public static class DockCornerOptions
 }
 
 /// <summary>
-/// Application settings, persisted as JSON in %APPDATA%\InternetSpeedWidget\settings.json.
+/// Application settings, persisted as JSON in %APPDATA%\Pulse\settings.json.
 /// </summary>
 public class Settings
 {
@@ -74,6 +91,17 @@ public class Settings
     public bool ShowUsage { get; set; } = true;         // data used today
     public bool ShowGraph { get; set; } = true;         // speed history sparkline
     public bool TrayNumbers { get; set; } = true;       // draw speeds in tray icon
+
+    // AIO system monitor (all opt-in; master toggle keeps the default
+    // widget network-only).
+    public bool ShowSystemStats { get; set; } = false;  // CPU/RAM/GPU/Disk panel
+    public bool ShowCpu { get; set; } = true;
+    public bool ShowRam { get; set; } = true;
+    public bool ShowGpu { get; set; } = true;
+    public bool ShowDisk { get; set; } = true;
+    public GpuBackend GpuBackend { get; set; } = GpuBackend.Generic;
+    public bool ShowSystemGraphs { get; set; } = false; // CPU/RAM/GPU sparklines
+    public bool SysSingleColumn { get; set; } = false; // one row per metric instead of 2x2
 
     // Which adapter to monitor. Empty = all physical adapters summed.
     public string AdapterId { get; set; } = "";
@@ -101,10 +129,32 @@ public class Settings
     public static string AppDataDir =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Pulse");
+
+    // Pre-rename folder (the app was called Internet Speed Widget). Migrated
+    // into AppDataDir on first Load() after the rename so settings, usage,
+    // history, and logs all carry over instead of silently resetting.
+    [JsonIgnore]
+    private static string LegacyAppDataDir =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "InternetSpeedWidget");
 
     [JsonIgnore]
     public static string SettingsPath => Path.Combine(AppDataDir, "settings.json");
+
+    private static void MigrateAppDataDirIfNeeded()
+    {
+        try
+        {
+            if (!Directory.Exists(AppDataDir) && Directory.Exists(LegacyAppDataDir))
+                Directory.Move(LegacyAppDataDir, AppDataDir);
+        }
+        catch
+        {
+            // Best-effort; if this fails the app just starts fresh under the new folder.
+        }
+    }
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -117,6 +167,7 @@ public class Settings
 
     public static Settings Load()
     {
+        MigrateAppDataDirIfNeeded();
         try
         {
             if (File.Exists(SettingsPath))

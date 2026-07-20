@@ -9,12 +9,13 @@ using Media = System.Windows.Media;
 using Drawing = System.Drawing;
 using WinForms = System.Windows.Forms;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 public partial class MainWindow : Window
 {
     private readonly Settings _settings;
     private readonly SpeedMonitor _monitor = new();
+    private readonly SystemMonitor _sysMonitor = new();
     private readonly UsageTracker _usage = new();
     private readonly DispatcherTimer _timer = new();
 
@@ -58,6 +59,11 @@ public partial class MainWindow : Window
     private const int HistoryLength = 60;
     private readonly double[] _downHistory = new double[HistoryLength];
     private readonly double[] _upHistory = new double[HistoryLength];
+    // System-stat histories (percent 0-100) share the network cursor pair so
+    // every sparkline advances in lockstep.
+    private readonly double[] _cpuHistory = new double[HistoryLength];
+    private readonly double[] _ramHistory = new double[HistoryLength];
+    private readonly double[] _gpuHistory = new double[HistoryLength];
     private int _historyHead;  // ring-buffer write cursor
     private int _historyCount; // samples held so far, caps at HistoryLength
 
@@ -266,6 +272,10 @@ public partial class MainWindow : Window
     private void OnTick()
     {
         _monitor.Sample();
+        // Only sample system counters when the AIO panel is on, so the
+        // default network-only widget never touches PerformanceCounter.
+        if (_settings.ShowSystemStats)
+            _sysMonitor.Sample();
         _usage.Add(_monitor.LastDeltaBytes);
 
         string down;
@@ -290,7 +300,9 @@ public partial class MainWindow : Window
         _geiger.SetRate(_monitor.DownloadBytesPerSec + _monitor.UploadBytesPerSec);
 
         UpdateInfoLine();
-        UpdateGraph();
+        UpdateSystemStats(); // writes text + raw history samples, before the cursor advances
+        UpdateGraph();       // writes down/up history and advances the shared ring cursor
+        UpdateSystemGraphs();// redraws CPU/RAM/GPU sparklines from the now-advanced cursor
         UpdateTopApp();
         UpdateTray(down, up);
         UpdatePing();
@@ -385,6 +397,120 @@ public partial class MainWindow : Window
             pts.Add(new System.Windows.Point(x, y));
         }
         return pts;
+    }
+
+    // ---------------------------------------------------------- AIO monitor
+
+    private void UpdateSystemStats()
+    {
+        if (!_settings.ShowSystemStats)
+        {
+            SysPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+        SysPanel.Visibility = Visibility.Visible;
+
+        CpuPanel.Visibility = _settings.ShowCpu ? Visibility.Visible : Visibility.Collapsed;
+        RamPanel.Visibility = _settings.ShowRam ? Visibility.Visible : Visibility.Collapsed;
+        GpuPanel.Visibility = _settings.ShowGpu ? Visibility.Visible : Visibility.Collapsed;
+        DiskPanel.Visibility = _settings.ShowDisk ? Visibility.Visible : Visibility.Collapsed;
+
+        double ramPct = _sysMonitor.RamTotalBytes > 0
+            ? 100.0 * _sysMonitor.RamUsedBytes / _sysMonitor.RamTotalBytes
+            : 0;
+        double gpuPct = _sysMonitor.GpuAvailable ? _sysMonitor.GpuPercent : 0;
+
+        if (_settings.ShowCpu)
+        {
+            CpuText.Text = $"{_sysMonitor.CpuPercent:0}%";
+            CpuTopText.Text = _sysMonitor.TopCpuProcessName.Length > 0
+                ? $"{Truncate(_sysMonitor.TopCpuProcessName, 12)} {_sysMonitor.TopCpuProcessPercent:0}%"
+                : "—";
+        }
+
+        if (_settings.ShowRam)
+        {
+            RamText.Text = $"{UsageTracker.FormatBytes(_sysMonitor.RamUsedBytes)} / " +
+                            $"{UsageTracker.FormatBytes(_sysMonitor.RamTotalBytes)}";
+            RamTopText.Text = _sysMonitor.TopRamProcessName.Length > 0
+                ? $"{Truncate(_sysMonitor.TopRamProcessName, 12)} {UsageTracker.FormatBytes(_sysMonitor.TopRamProcessBytes)}"
+                : "—";
+        }
+
+        if (_settings.ShowGpu)
+            GpuText.Text = _sysMonitor.GpuAvailable ? $"{gpuPct:0}%" : "—";
+
+        if (_settings.ShowDisk)
+        {
+            DiskReadText.Text = $"Read  {UsageTracker.FormatBytes((long)_sysMonitor.DiskReadBytesPerSec)}/s";
+            DiskWriteText.Text = $"Write {UsageTracker.FormatBytes((long)_sysMonitor.DiskWriteBytesPerSec)}/s";
+            DiskSpaceText.Text = string.Join("\n", _sysMonitor.DriveSpaces.Select(d =>
+                $"{d.Letter}  {UsageTracker.FormatBytes(d.UsedBytes)} / {UsageTracker.FormatBytes(d.TotalBytes)}"));
+        }
+
+        // Record raw samples at the not-yet-advanced cursor, same slot
+        // UpdateGraph is about to write the network samples into.
+        _cpuHistory[_historyHead] = _sysMonitor.CpuPercent;
+        _ramHistory[_historyHead] = ramPct;
+        _gpuHistory[_historyHead] = gpuPct;
+    }
+
+    private void UpdateSystemGraphs()
+    {
+        if (!_settings.ShowSystemStats || !_settings.ShowSystemGraphs)
+            return;
+
+        if (_settings.ShowCpu)
+            CpuLine.Points = BuildPoints(_cpuHistory, 100, CpuGraph.Width, CpuGraph.Height);
+        if (_settings.ShowRam)
+            RamLine.Points = BuildPoints(_ramHistory, 100, RamGraph.Width, RamGraph.Height);
+        if (_settings.ShowGpu)
+            GpuLine.Points = BuildPoints(_gpuHistory, 100, GpuGraph.Width, GpuGraph.Height);
+    }
+
+    /// <summary>
+    /// Rebuilds SysPanel's row/column structure and repositions the four
+    /// metric boxes: a 2x2 grid by default, or one box per row when
+    /// SysSingleColumn is on. Cheap and only runs on settings changes, so
+    /// it's simplest to fully rebuild rather than patch the existing grid.
+    /// </summary>
+    private void ApplySysPanelLayout()
+    {
+        SysPanel.RowDefinitions.Clear();
+        SysPanel.ColumnDefinitions.Clear();
+        var boxes = new[] { CpuPanel, RamPanel, GpuPanel, DiskPanel };
+
+        if (_settings.SysSingleColumn)
+        {
+            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            for (int i = 0; i < boxes.Length; i++)
+            {
+                if (i > 0)
+                    SysPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
+                SysPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetRow(boxes[i], SysPanel.RowDefinitions.Count - 1);
+                Grid.SetColumn(boxes[i], 0);
+            }
+        }
+        else
+        {
+            // Same SharedSizeGroup on both columns forces every box to the
+            // same width: whichever box's content is widest, not just
+            // star-proportional space.
+            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SysCol" });
+            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SysCol" });
+            SysPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            SysPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
+            SysPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            (int Row, int Col)[] positions = { (0, 0), (0, 2), (2, 0), (2, 2) };
+            for (int i = 0; i < boxes.Length; i++)
+            {
+                Grid.SetRow(boxes[i], positions[i].Row);
+                Grid.SetColumn(boxes[i], positions[i].Col);
+            }
+        }
     }
 
     // ------------------------------------------------- Experimental features
@@ -547,8 +673,10 @@ public partial class MainWindow : Window
         double arrowH = baseSize;
         DownArrow.Width = UpArrow.Width = CDownArrow.Width = CUpArrow.Width = arrowW;
         DownArrow.Height = UpArrow.Height = CDownArrow.Height = CUpArrow.Height = arrowH;
-        InfoText.FontSize = Math.Max(9, baseSize * 0.78);
-        TopAppText.FontSize = InfoText.FontSize;
+        // All secondary text matches the main speed numbers — one font size
+        // for the whole widget, per user preference.
+        InfoText.FontSize = baseSize;
+        TopAppText.FontSize = baseSize;
 
         // Reserve enough width for the longest string this unit can produce
         // (both fonts are monospace) so the widget doesn't resize every time
@@ -568,6 +696,36 @@ public partial class MainWindow : Window
         PingPanel.Visibility = _settings.ShowPing ? Visibility.Visible : Visibility.Collapsed;
         CPingPanel.Visibility = PingPanel.Visibility;
         InfoText.Visibility = _settings.ShowUsage ? Visibility.Visible : Visibility.Collapsed;
+
+        // AIO system monitor. The panel's own visibility (and its per-metric
+        // sub-visibility) is refreshed every tick in UpdateSystemStats, this
+        // only handles sizing/theming/backend.
+        _sysMonitor.Backend = _settings.GpuBackend;
+        SysPanel.Visibility = _settings.ShowSystemStats ? Visibility.Visible : Visibility.Collapsed;
+        ApplySysPanelLayout();
+        foreach (var tb in new[]
+                 {
+                     CpuText, CpuTopText, RamText, RamTopText, GpuText,
+                     DiskReadText, DiskWriteText, DiskSpaceText,
+                     CpuHeader, RamHeader, GpuHeader, DiskHeader
+                 })
+            tb.FontSize = baseSize;
+
+        // Reserve width for the longest plausible "Write 999.9 MB/s" string
+        // so the Disk box doesn't resize every tick as the digit count
+        // fluctuates with read/write throughput.
+        double diskRateWidth = "Write 999.9 MB/s".Length * baseSize * 0.62 + 2;
+        DiskReadText.MinWidth = DiskWriteText.MinWidth = diskRateWidth;
+
+        double graphW = 56 * _settings.ScaleFactor;
+        double graphH = 16 * _settings.ScaleFactor;
+        bool showGraphs = _settings.ShowSystemStats && _settings.ShowSystemGraphs;
+        foreach (var c in new[] { CpuGraph, RamGraph, GpuGraph })
+        {
+            c.Width = graphW;
+            c.Height = graphH;
+            c.Visibility = showGraphs ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         if (_monitor.AdapterFilterId != _settings.AdapterId)
         {
@@ -805,7 +963,7 @@ public partial class MainWindow : Window
         {
             Icon = _trayIconImage,
             Visible = true,
-            Text = "Internet Speed Widget"
+            Text = "Pulse"
         };
 
         var menu = new WinForms.ContextMenuStrip();
@@ -1094,6 +1252,7 @@ public partial class MainWindow : Window
         _history.Save();
         _outage.Dispose();
         _perApp.Dispose();
+        _sysMonitor.Dispose();
         _geiger.Enabled = false;
         _embedded = false;
 

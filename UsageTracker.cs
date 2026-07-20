@@ -1,11 +1,11 @@
 using System.IO;
 using System.Text.Json;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
 /// Accumulates total bytes transferred today and this month, persisted to
-/// %APPDATA%\InternetSpeedWidget\usage.json so totals survive restarts.
+/// %APPDATA%\Pulse\usage.json so totals survive restarts.
 /// </summary>
 public class UsageTracker
 {

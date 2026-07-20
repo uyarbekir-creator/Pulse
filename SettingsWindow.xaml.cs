@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 public partial class SettingsWindow : Window
 {
@@ -86,6 +86,10 @@ public partial class SettingsWindow : Window
         DockCombo.ItemsSource = DockCornerOptions.All.Select(o => o.Label).ToArray();
         DockCombo.SelectedIndex = (int)_settings.DockCorner;
 
+        // GPU backend
+        GpuBackendCombo.ItemsSource = GpuBackendOptions.All.Select(o => o.Label).ToArray();
+        GpuBackendCombo.SelectedIndex = (int)_settings.GpuBackend;
+
         // Ping host + toggles
         PingHostBox.Text = _settings.PingHost;
         CompactCheck.IsChecked = _settings.CompactLayout;
@@ -98,6 +102,15 @@ public partial class SettingsWindow : Window
         HotkeyCheck.IsChecked = _settings.HotkeyEnabled;
         FullscreenCheck.IsChecked = _settings.HideWhenFullscreen;
         StartupCheck.IsChecked = StartupManager.IsEnabled();
+
+        // System monitor
+        SysStatsCheck.IsChecked = _settings.ShowSystemStats;
+        SysCpuCheck.IsChecked = _settings.ShowCpu;
+        SysRamCheck.IsChecked = _settings.ShowRam;
+        SysGpuCheck.IsChecked = _settings.ShowGpu;
+        SysDiskCheck.IsChecked = _settings.ShowDisk;
+        SysGraphsCheck.IsChecked = _settings.ShowSystemGraphs;
+        SysSingleColumnCheck.IsChecked = _settings.SysSingleColumn;
 
         // Experimental
         EmbedCheck.IsChecked = _settings.DesktopEmbedded;
@@ -124,6 +137,7 @@ public partial class SettingsWindow : Window
         ThemeCombo.SelectionChanged += OnThemeChanged;
         AdapterCombo.SelectionChanged += OnAdapterChanged;
         DockCombo.SelectionChanged += OnDockChanged;
+        GpuBackendCombo.SelectionChanged += OnGpuBackendChanged;
         PingHostBox.LostFocus += OnPingHostChanged;
 
         WireCheck(CompactCheck, v => _settings.CompactLayout = v);
@@ -135,6 +149,14 @@ public partial class SettingsWindow : Window
         WireCheck(TrayCheck, v => _settings.TrayNumbers = v);
         WireCheck(HotkeyCheck, v => _settings.HotkeyEnabled = v);
         WireCheck(FullscreenCheck, v => _settings.HideWhenFullscreen = v);
+
+        WireCheck(SysStatsCheck, v => _settings.ShowSystemStats = v);
+        WireCheck(SysCpuCheck, v => _settings.ShowCpu = v);
+        WireCheck(SysRamCheck, v => _settings.ShowRam = v);
+        WireCheck(SysGpuCheck, v => _settings.ShowGpu = v);
+        WireCheck(SysDiskCheck, v => _settings.ShowDisk = v);
+        WireCheck(SysGraphsCheck, v => _settings.ShowSystemGraphs = v);
+        WireCheck(SysSingleColumnCheck, v => _settings.SysSingleColumn = v);
 
         WireCheck(EmbedCheck, v => _settings.DesktopEmbedded = v);
         WireCheck(ParticleCheck, v => _settings.TrafficParticles = v);
@@ -236,6 +258,13 @@ public partial class SettingsWindow : Window
     {
         if (_loading) return;
         _settings.DockCorner = (DockCorner)DockCombo.SelectedIndex;
+        Notify();
+    }
+
+    private void OnGpuBackendChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.GpuBackend = GpuBackendOptions.All[GpuBackendCombo.SelectedIndex].Backend;
         Notify();
     }
 

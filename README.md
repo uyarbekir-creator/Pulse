@@ -1,9 +1,10 @@
-# Internet Speed Widget
+# Pulse
 
 A lightweight desktop widget for Windows 11 that shows your **live internet
 speed** — download ↓, upload ↑, and ping — in a small, transparent,
 always-on-top card. It reads your network adapter's real throughput (not a
 speed test), so it shows whatever your PC is actually sending and receiving.
+An optional AIO mode adds live CPU, RAM, GPU, and Disk stats alongside it.
 
 ![Widget showing live ping, download, upload, data used today, and a speed history graph](screenshot.png)
 
@@ -17,6 +18,8 @@ unrecognized app (the exe isn't code-signed): click *More info → Run anyway*.
 
 - Live ↓ / ↑ speeds, ping, and data used today / this month
 - 24-hour history chart and an on-demand internet speed test
+- Optional AIO system monitor: live CPU, RAM, GPU, and Disk stats in their
+  own framed sections, off by default (Settings → System Monitor)
 - Themes (Dark / Light / Black), compact one-line layout, font-size slider,
   background opacity down to fully transparent
 - Drag anywhere, or dock to any screen corner
@@ -34,7 +37,7 @@ per-app bandwidth top talker (needs admin — there's a one-click
 ## Settings
 
 Right-click the widget or the tray icon → **Settings…**. Everything applies
-instantly and is saved to `%APPDATA%\InternetSpeedWidget\`. Delete that
+instantly and is saved to `%APPDATA%\Pulse\`. Delete that
 folder to reset.
 
 <img src="screenshot-settings.png" alt="Settings window with opacity, font size, refresh interval, units, theme, adapter, dock corner, and experimental toggles" width="500">

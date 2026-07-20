@@ -9,8 +9,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <AssemblyName>InternetSpeedWidget</AssemblyName>
-    <RootNamespace>InternetSpeedWidget</RootNamespace>
+    <AssemblyName>Pulse</AssemblyName>
+    <RootNamespace>Pulse</RootNamespace>
     <Version>1.1.0</Version>
     <!-- Avoid WinForms/WPF ambiguous type warnings being treated as errors -->
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
@@ -21,6 +21,7 @@
   <ItemGroup>
     <!-- ETW tracing for the experimental per-app bandwidth monitor -->
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.16" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.10" />
   </ItemGroup>
 
 </Project>

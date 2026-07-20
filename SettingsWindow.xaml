@@ -1,7 +1,7 @@
-<Window x:Class="InternetSpeedWidget.SettingsWindow"
+<Window x:Class="Pulse.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Internet Speed Widget — Settings"
+        Title="Pulse — Settings"
         Width="560" SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
@@ -103,7 +103,30 @@
 
         <Border BorderBrush="#FF444444" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,4,0,0">
             <StackPanel>
-                <Label Content="Experimental ⚗" Margin="0,4,0,2"/>
+                <Label Content="System Monitor" Margin="0,4,0,2"/>
+                <CheckBox x:Name="SysStatsCheck" Content="Show CPU / RAM / GPU / Disk stats (AIO mode)"
+                          Margin="0,2,0,0"/>
+                <Grid Margin="16,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="20"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <CheckBox x:Name="SysCpuCheck" Content="CPU" Margin="0,2,0,0"/>
+                        <CheckBox x:Name="SysRamCheck" Content="RAM"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <CheckBox x:Name="SysGpuCheck" Content="GPU" Margin="0,2,0,0"/>
+                        <CheckBox x:Name="SysDiskCheck" Content="Disk"/>
+                    </StackPanel>
+                </Grid>
+                <Label Content="GPU method" Margin="16,10,0,2"/>
+                <ComboBox x:Name="GpuBackendCombo" Margin="16,0,0,0" HorizontalAlignment="Left" MinWidth="220"/>
+                <CheckBox x:Name="SysGraphsCheck" Content="Show CPU / RAM / GPU history graphs" Margin="0,10,0,0"/>
+                <CheckBox x:Name="SysSingleColumnCheck" Content="Single column (one row per metric)" Margin="0,4,0,0"/>
+
+                <Label Content="Experimental ⚗" Margin="0,14,0,2"/>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

@@ -1,9 +1,9 @@
 using System.IO;
 
-namespace InternetSpeedWidget;
+namespace Pulse;
 
 /// <summary>
-/// Appends unhandled-exception details to %APPDATA%\InternetSpeedWidget\error.log
+/// Appends unhandled-exception details to %APPDATA%\Pulse\error.log
 /// so unexpected exits can be diagnosed after the fact.
 /// </summary>
 public static class CrashLogger
