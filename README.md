@@ -5,6 +5,8 @@ speed** — download ↓, upload ↑, and ping — in a small, transparent,
 always-on-top card. It reads your network adapter's real throughput (not a
 speed test), so it shows whatever your PC is actually sending and receiving.
 
+![Widget showing live ping, download, upload, data used today, and a speed history graph](screenshot.png)
+
 ## Download
 
 Grab the latest exe from **[Releases](https://github.com/uyarbekir-creator/InternetSpeedWidget/releases)**
@@ -34,6 +36,8 @@ per-app bandwidth top talker (needs admin — there's a one-click
 Right-click the widget or the tray icon → **Settings…**. Everything applies
 instantly and is saved to `%APPDATA%\InternetSpeedWidget\`. Delete that
 folder to reset.
+
+<img src="screenshot-settings.png" alt="Settings window with opacity, font size, refresh interval, units, theme, adapter, dock corner, and experimental toggles" width="500">
 
 ## Build from source
 
