@@ -88,8 +88,58 @@ public static class StartupManager
     public static void MigrateIfNeeded()
     {
         MigrateRenameIfNeeded();
+        RefreshTaskPathIfStale();
         if (RunKeyExists() && !TaskExists() && IsElevated && CreateTask())
             RemoveRunKey();
+    }
+
+    /// <summary>
+    /// If the registered Scheduled Task's target exe path no longer matches
+    /// where this process is actually running from (the app's folder was
+    /// renamed or moved), silently recreate it — otherwise "Start with
+    /// Windows" keeps pointing at a dead path and just fails at next logon.
+    /// </summary>
+    private static void RefreshTaskPathIfStale()
+    {
+        if (!IsElevated || !TaskExists())
+            return;
+        string? exe = ExePath;
+        if (string.IsNullOrEmpty(exe))
+            return;
+        string? registered = GetTaskCommand();
+        if (registered != null && !string.Equals(registered, exe, StringComparison.OrdinalIgnoreCase))
+            CreateTask(); // /Create ... /F overwrites the existing task in place
+    }
+
+    private static string? GetTaskCommand()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "schtasks.exe",
+                Arguments = $"/Query /TN \"{TaskName}\" /XML",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+            if (process == null)
+                return null;
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(10000);
+
+            int start = output.IndexOf("<Command>", StringComparison.Ordinal);
+            int end = output.IndexOf("</Command>", StringComparison.Ordinal);
+            if (start < 0 || end < 0 || end <= start)
+                return null;
+            start += "<Command>".Length;
+            return output.Substring(start, end - start).Trim();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
