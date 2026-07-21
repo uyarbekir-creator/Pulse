@@ -119,11 +119,33 @@ public class SystemMonitor : IDisposable
             return;
         _lastSample = now;
 
+        bool firstRealSample = !_countersCreated;
         EnsureCounters();
 
-        CpuPercent = Math.Clamp(SafeNext(_cpuCounter), 0, 100);
-        DiskReadBytesPerSec = Math.Max(0, SafeNext(_diskReadCounter));
-        DiskWriteBytesPerSec = Math.Max(0, SafeNext(_diskWriteCounter));
+        if (firstRealSample)
+        {
+            // The counters were just created a moment ago inside
+            // EnsureCounters(); "% Processor Time" needs a real elapsed gap
+            // between two raw reads to compute a stable percentage, and
+            // back-to-back reads with no delay can report garbage (verified:
+            // 100%, 66% on an idle machine) rather than the 0 this class'
+            // doc comment promises. Consume this reading as the baseline —
+            // same "first sample = baseline, report zero" idiom SpeedMonitor
+            // uses — real numbers start next cycle, which the throttle above
+            // guarantees is >=1s later.
+            SafeNext(_cpuCounter);
+            SafeNext(_diskReadCounter);
+            SafeNext(_diskWriteCounter);
+            CpuPercent = 0;
+            DiskReadBytesPerSec = 0;
+            DiskWriteBytesPerSec = 0;
+        }
+        else
+        {
+            CpuPercent = Math.Clamp(SafeNext(_cpuCounter), 0, 100);
+            DiskReadBytesPerSec = Math.Max(0, SafeNext(_diskReadCounter));
+            DiskWriteBytesPerSec = Math.Max(0, SafeNext(_diskWriteCounter));
+        }
 
         SampleRam();
         SampleDiskSpace();
