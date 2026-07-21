@@ -9,8 +9,14 @@ namespace Pulse;
 /// </summary>
 public class SpeedMonitor
 {
-    private long _lastBytesReceived;
-    private long _lastBytesSent;
+    // Per-adapter byte counters keyed by interface Id. Diffing per adapter
+    // (rather than diffing a single sum over all monitored adapters) is
+    // essential: when an adapter joins or leaves the monitored set between
+    // two samples, a summed diff counts that adapter's entire lifetime byte
+    // total as one giant positive delta — the cause of impossible
+    // "1+ TB today" usage figures. Per-adapter diffing lets a newly-seen
+    // adapter simply establish its own baseline and contribute 0 that tick.
+    private Dictionary<string, (long Recv, long Sent)> _lastByAdapter = new();
     private DateTime _lastSample = DateTime.MinValue;
 
     /// <summary>Latest download speed in bytes per second.</summary>
@@ -31,7 +37,11 @@ public class SpeedMonitor
     public string AdapterFilterId { get; set; } = "";
 
     /// <summary>Forget the counter baseline (call after changing the adapter filter).</summary>
-    public void Reset() => _lastSample = DateTime.MinValue;
+    public void Reset()
+    {
+        _lastSample = DateTime.MinValue;
+        _lastByAdapter.Clear();
+    }
 
     /// <summary>A monitorable adapter, for the settings UI.</summary>
     public record AdapterInfo(string Id, string Name, string Description);
@@ -59,8 +69,7 @@ public class SpeedMonitor
     /// </summary>
     public void Sample()
     {
-        long totalReceived = 0;
-        long totalSent = 0;
+        var current = new Dictionary<string, (long Recv, long Sent)>();
         bool any = false;
 
         try
@@ -71,8 +80,7 @@ public class SpeedMonitor
                     continue;
 
                 var stats = ni.GetIPv4Statistics();
-                totalReceived += stats.BytesReceived;
-                totalSent += stats.BytesSent;
+                current[ni.Id] = (stats.BytesReceived, stats.BytesSent);
                 any = true;
             }
         }
@@ -90,16 +98,14 @@ public class SpeedMonitor
             UploadBytesPerSec = 0;
             LastDeltaBytes = 0;
             _lastSample = now;
-            _lastBytesReceived = 0;
-            _lastBytesSent = 0;
+            _lastByAdapter = current; // empty
             return;
         }
 
         if (_lastSample == DateTime.MinValue)
         {
-            // First sample - establish baseline, report zero.
-            _lastBytesReceived = totalReceived;
-            _lastBytesSent = totalSent;
+            // First sample - establish per-adapter baseline, report zero.
+            _lastByAdapter = current;
             _lastSample = now;
             DownloadBytesPerSec = 0;
             UploadBytesPerSec = 0;
@@ -111,16 +117,27 @@ public class SpeedMonitor
         if (elapsed <= 0)
             elapsed = 0.0001;
 
-        // Guard against counter resets (adapter change) producing negatives.
-        long deltaDown = Math.Max(0, totalReceived - _lastBytesReceived);
-        long deltaUp = Math.Max(0, totalSent - _lastBytesSent);
+        // Sum deltas PER ADAPTER, only for adapters present in BOTH samples.
+        // A newly-seen (or returning) adapter is skipped this tick — it just
+        // establishes its baseline in _lastByAdapter below — so its lifetime
+        // total never lands as a spurious delta. Math.Max guards per-adapter
+        // counter resets and the 32-bit GetIPv4Statistics wrap at 4 GB, both
+        // of which surface as a negative.
+        long deltaDown = 0;
+        long deltaUp = 0;
+        foreach (var (id, cur) in current)
+        {
+            if (!_lastByAdapter.TryGetValue(id, out var prev))
+                continue;
+            deltaDown += Math.Max(0, cur.Recv - prev.Recv);
+            deltaUp += Math.Max(0, cur.Sent - prev.Sent);
+        }
 
         DownloadBytesPerSec = deltaDown / elapsed;
         UploadBytesPerSec = deltaUp / elapsed;
         LastDeltaBytes = deltaDown + deltaUp;
 
-        _lastBytesReceived = totalReceived;
-        _lastBytesSent = totalSent;
+        _lastByAdapter = current;
         _lastSample = now;
     }
 

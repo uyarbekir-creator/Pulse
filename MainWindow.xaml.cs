@@ -519,16 +519,16 @@ public partial class MainWindow : Window
     {
         if (!_settings.PerAppStats)
         {
-            TopAppText.Visibility = Visibility.Collapsed;
+            TopAppPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        TopAppText.Visibility = Visibility.Visible;
+        TopAppPanel.Visibility = Visibility.Visible;
         if (!_perApp.IsRunning)
         {
-            TopAppText.Text = AppTrafficMonitor.IsElevated
+            SetTopApp(AppTrafficMonitor.IsElevated
                 ? "per-app: unavailable"
-                : "per-app: run as administrator";
+                : "run as administrator", "");
             return;
         }
 
@@ -541,11 +541,17 @@ public partial class MainWindow : Window
         var top = _perApp.TakeTop();
         if (top == null || top.Value.Bytes < 2048)
         {
-            TopAppText.Text = "top: —";
+            SetTopApp("top: —", "");
             return;
         }
-        TopAppText.Text =
-            $"{top.Value.Name}  {SpeedMonitor.Format(top.Value.Bytes / elapsed, _settings.Unit)}";
+        SetTopApp(Truncate(top.Value.Name, 14),
+            SpeedMonitor.Format(top.Value.Bytes / elapsed, _settings.Unit));
+    }
+
+    private void SetTopApp(string name, string speed)
+    {
+        TopAppNameText.Text = name;
+        TopAppSpeedText.Text = speed;
     }
 
     private void ParticleTick()
@@ -667,6 +673,7 @@ public partial class MainWindow : Window
         CPingText.FontSize = baseSize;
         PingHeader.FontSize = baseSize;
         CPingHeader.FontSize = baseSize;
+        NetworkHeader.FontSize = baseSize;
 
         // Arrows are filled Paths; scale them with the font.
         double arrowW = baseSize * 0.95;
@@ -676,13 +683,20 @@ public partial class MainWindow : Window
         // All secondary text matches the main speed numbers — one font size
         // for the whole widget, per user preference.
         InfoText.FontSize = baseSize;
-        TopAppText.FontSize = baseSize;
+        TopAppNameText.FontSize = baseSize;
+        TopAppSpeedText.FontSize = baseSize;
 
         // Reserve enough width for the longest string this unit can produce
         // (both fonts are monospace) so the widget doesn't resize every time
         // a digit is added or dropped as the speed value changes.
         double numberWidth = WidestSpeedSample(_settings.Unit).Length * baseSize * 0.62 + 2;
         DownText.MinWidth = UpText.MinWidth = CDownText.MinWidth = CUpText.MinWidth = numberWidth;
+
+        // Fixed cell widths for the per-app talker line: name reserves 14
+        // monospace chars, speed reserves the widest value — so neither a
+        // long app name nor a changing speed shifts the number or the frame.
+        TopAppNameText.MinWidth = 14 * baseSize * 0.62 + 2;
+        TopAppSpeedText.MinWidth = numberWidth;
 
         ApplyTheme();
 
@@ -743,7 +757,7 @@ public partial class MainWindow : Window
             _perApp.Start();
         else
             _perApp.Stop();
-        TopAppText.Visibility = _settings.PerAppStats ? Visibility.Visible : Visibility.Collapsed;
+        TopAppPanel.Visibility = _settings.PerAppStats ? Visibility.Visible : Visibility.Collapsed;
         if (_settings.TrafficParticles)
         {
             _particleTimer.Start();

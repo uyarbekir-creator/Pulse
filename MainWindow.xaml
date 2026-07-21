@@ -11,6 +11,20 @@
         ResizeMode="NoResize"
         WindowStartupLocation="Manual">
 
+    <Window.Resources>
+        <!-- Section-header "pulse" — a slow opacity breathe echoing the app's
+             name. Shared by every section header; each header's own
+             EventTrigger applies it to itself (no TargetName needed). -->
+        <Storyboard x:Key="HeaderPulse" RepeatBehavior="Forever" AutoReverse="True">
+            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                              From="0.35" To="0.9" Duration="0:0:1.1">
+                <DoubleAnimation.EasingFunction>
+                    <SineEase EasingMode="EaseInOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+    </Window.Resources>
+
     <Border x:Name="RootBorder"
             CornerRadius="10"
             Padding="10,7"
@@ -25,7 +39,25 @@
         <!-- Network section: speeds, ping, usage/outage line, top talker, history graph -->
         <Border x:Name="NetworkFrame" CornerRadius="6" BorderThickness="1"
                 BorderBrush="#33FFFFFF" Padding="8,6">
-        <StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock x:Name="NetworkHeader" Grid.Column="0"
+                       Text="NET&#10;WORK" Opacity="0.75"
+                       Foreground="#AAAAAA" FontFamily="Consolas, Segoe UI"
+                       FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
+                       VerticalAlignment="Center" Margin="0,0,6,0">
+                <TextBlock.Triggers>
+                    <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                        <BeginStoryboard Storyboard="{StaticResource HeaderPulse}"/>
+                    </EventTrigger>
+                </TextBlock.Triggers>
+            </TextBlock>
+
+        <StackPanel Grid.Column="1">
 
             <!-- Stacked layout: ping left third, speeds stacked on the right -->
             <Grid x:Name="StackedPanel" HorizontalAlignment="Center">
@@ -110,11 +142,24 @@
                        TextAlignment="Center" Margin="0,4,0,0"
                        Visibility="Collapsed"/>
 
-            <!-- Experimental: per-app top talker -->
-            <TextBlock x:Name="TopAppText" Text=""
-                       Foreground="#AAAAAA" FontFamily="Consolas, Segoe UI"
-                       TextAlignment="Center" Margin="0,3,0,0"
-                       Visibility="Collapsed"/>
+            <!-- Experimental: per-app top talker. Name (right-aligned) and
+                 speed (right-aligned) live in separate fixed-width cells so a
+                 long app name never pushes the speed number sideways or
+                 reflows the whole frame. -->
+            <Grid x:Name="TopAppPanel" Margin="0,3,0,0" Visibility="Collapsed"
+                  HorizontalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="TopAppNameText" Grid.Column="0" Text=""
+                           Foreground="#AAAAAA" FontFamily="Consolas, Segoe UI"
+                           TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                           Margin="0,0,8,0"/>
+                <TextBlock x:Name="TopAppSpeedText" Grid.Column="1" Text=""
+                           Foreground="#AAAAAA" FontFamily="Consolas, Segoe UI"
+                           TextAlignment="Right"/>
+            </Grid>
 
             <!-- Speed history sparkline -->
             <Canvas x:Name="GraphCanvas" Height="26" Width="130" Margin="0,6,0,0"
@@ -125,6 +170,7 @@
             </Canvas>
 
         </StackPanel>
+        </Grid>
         </Border>
 
         <!-- AIO system monitor: CPU / RAM / GPU / Disk, each its own framed section -->
@@ -146,75 +192,127 @@
 
             <Border x:Name="CpuPanel" Grid.Row="0" Grid.Column="0" CornerRadius="6"
                     BorderThickness="1" BorderBrush="#4DFFB74D" Padding="6,5">
-                <StackPanel HorizontalAlignment="Center">
-                    <TextBlock x:Name="CpuHeader" Text="CPU" Opacity="0.75"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="CpuHeader" Grid.Column="0" Text="CPU" Opacity="0.75"
                                Foreground="#FFB74D" FontFamily="Consolas, Segoe UI"
-                               FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="CpuText" Text="—"
-                               Foreground="#FFB74D" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="CpuTopText" Text="—" Opacity="0.75"
-                               Foreground="#FFB74D" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <Canvas x:Name="CpuGraph" Height="16" Width="56" Margin="0,2,0,0"
-                            Visibility="Collapsed" ClipToBounds="True">
-                        <Polyline x:Name="CpuLine" Stroke="#FFB74D" StrokeThickness="1.2"/>
-                    </Canvas>
-                </StackPanel>
+                               FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
+                               VerticalAlignment="Center" Margin="0,0,4,0">
+                        <TextBlock.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard Storyboard="{StaticResource HeaderPulse}"/>
+                            </EventTrigger>
+                        </TextBlock.Triggers>
+                    </TextBlock>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                        <TextBlock x:Name="CpuText" Text="—"
+                                   Foreground="#FFB74D" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="CpuTopText" Text="—" Opacity="0.75"
+                                   Foreground="#FFB74D" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <Canvas x:Name="CpuGraph" Height="16" Width="56" Margin="0,2,0,0"
+                                Visibility="Collapsed" ClipToBounds="True">
+                            <Polyline x:Name="CpuLine" Stroke="#FFB74D" StrokeThickness="1.2"/>
+                        </Canvas>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <Border x:Name="RamPanel" Grid.Row="0" Grid.Column="2" CornerRadius="6"
                     BorderThickness="1" BorderBrush="#4DB39DDB" Padding="6,5">
-                <StackPanel HorizontalAlignment="Center">
-                    <TextBlock x:Name="RamHeader" Text="RAM" Opacity="0.75"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="RamHeader" Grid.Column="0" Text="RAM" Opacity="0.75"
                                Foreground="#B39DDB" FontFamily="Consolas, Segoe UI"
-                               FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="RamText" Text="—"
-                               Foreground="#B39DDB" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="RamTopText" Text="—" Opacity="0.75"
-                               Foreground="#B39DDB" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <Canvas x:Name="RamGraph" Height="16" Width="56" Margin="0,2,0,0"
-                            Visibility="Collapsed" ClipToBounds="True">
-                        <Polyline x:Name="RamLine" Stroke="#B39DDB" StrokeThickness="1.2"/>
-                    </Canvas>
-                </StackPanel>
+                               FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
+                               VerticalAlignment="Center" Margin="0,0,4,0">
+                        <TextBlock.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard Storyboard="{StaticResource HeaderPulse}"/>
+                            </EventTrigger>
+                        </TextBlock.Triggers>
+                    </TextBlock>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                        <TextBlock x:Name="RamText" Text="—"
+                                   Foreground="#B39DDB" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="RamTopText" Text="—" Opacity="0.75"
+                                   Foreground="#B39DDB" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <Canvas x:Name="RamGraph" Height="16" Width="56" Margin="0,2,0,0"
+                                Visibility="Collapsed" ClipToBounds="True">
+                            <Polyline x:Name="RamLine" Stroke="#B39DDB" StrokeThickness="1.2"/>
+                        </Canvas>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <Border x:Name="GpuPanel" Grid.Row="2" Grid.Column="0" CornerRadius="6"
                     BorderThickness="1" BorderBrush="#4DFF8A65" Padding="6,5">
-                <StackPanel HorizontalAlignment="Center">
-                    <TextBlock x:Name="GpuHeader" Text="GPU" Opacity="0.75"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="GpuHeader" Grid.Column="0" Text="GPU" Opacity="0.75"
                                Foreground="#FF8A65" FontFamily="Consolas, Segoe UI"
-                               FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="GpuText" Text="—"
-                               Foreground="#FF8A65" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <Canvas x:Name="GpuGraph" Height="16" Width="56" Margin="0,2,0,0"
-                            Visibility="Collapsed" ClipToBounds="True">
-                        <Polyline x:Name="GpuLine" Stroke="#FF8A65" StrokeThickness="1.2"/>
-                    </Canvas>
-                </StackPanel>
+                               FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
+                               VerticalAlignment="Center" Margin="0,0,4,0">
+                        <TextBlock.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard Storyboard="{StaticResource HeaderPulse}"/>
+                            </EventTrigger>
+                        </TextBlock.Triggers>
+                    </TextBlock>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                        <TextBlock x:Name="GpuText" Text="—"
+                                   Foreground="#FF8A65" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <Canvas x:Name="GpuGraph" Height="16" Width="56" Margin="0,2,0,0"
+                                Visibility="Collapsed" ClipToBounds="True">
+                            <Polyline x:Name="GpuLine" Stroke="#FF8A65" StrokeThickness="1.2"/>
+                        </Canvas>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <Border x:Name="DiskPanel" Grid.Row="2" Grid.Column="2" CornerRadius="6"
                     BorderThickness="1" BorderBrush="#4D4DB6AC" Padding="6,5">
-                <StackPanel HorizontalAlignment="Center">
-                    <TextBlock x:Name="DiskHeader" Text="Disk" Opacity="0.75"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="DiskHeader" Grid.Column="0" Text="DISK" Opacity="0.75"
                                Foreground="#4DB6AC" FontFamily="Consolas, Segoe UI"
-                               FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="DiskReadText" Text="—"
-                               Foreground="#4DB6AC" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="DiskWriteText" Text="—"
-                               Foreground="#4DB6AC" FontFamily="Consolas, Segoe UI"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="DiskSpaceText" Text=""
-                               Foreground="#4DB6AC" Opacity="0.75"
-                               FontFamily="Consolas, Segoe UI" TextAlignment="Center"
-                               HorizontalAlignment="Center"/>
-                </StackPanel>
+                               FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
+                               VerticalAlignment="Center" Margin="0,0,4,0">
+                        <TextBlock.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard Storyboard="{StaticResource HeaderPulse}"/>
+                            </EventTrigger>
+                        </TextBlock.Triggers>
+                    </TextBlock>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                        <TextBlock x:Name="DiskReadText" Text="—"
+                                   Foreground="#4DB6AC" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="DiskWriteText" Text="—"
+                                   Foreground="#4DB6AC" FontFamily="Consolas, Segoe UI"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="DiskSpaceText" Text=""
+                                   Foreground="#4DB6AC" Opacity="0.75"
+                                   FontFamily="Consolas, Segoe UI" TextAlignment="Center"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
             </Border>
         </Grid>
 
