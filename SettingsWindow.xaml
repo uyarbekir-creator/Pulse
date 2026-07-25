@@ -125,6 +125,10 @@
                 <ComboBox x:Name="GpuBackendCombo" Margin="16,0,0,0" HorizontalAlignment="Left" MinWidth="220"/>
                 <CheckBox x:Name="SysGraphsCheck" Content="Show CPU / RAM / GPU history graphs" Margin="0,10,0,0"/>
                 <CheckBox x:Name="SysSingleColumnCheck" Content="Single column (one row per metric)" Margin="0,4,0,0"/>
+                <CheckBox x:Name="WeatherCheck" Content="Show weather (auto location)" Margin="0,4,0,0"/>
+                <CheckBox x:Name="WeatherFahrenheitCheck" Content="Weather in Fahrenheit" Margin="16,4,0,0"/>
+                <TextBlock Text="Frames are draggable: grab the small dot at a frame's lower-left corner to move it, and it snaps to the other frames' edges. Right-click → Reset Frame Layout restores the default arrangement."
+                           TextWrapping="Wrap" Foreground="#FF999999" FontSize="11" Margin="0,8,0,0"/>
 
                 <Label Content="Experimental ⚗" Margin="0,14,0,2"/>
                 <Grid>

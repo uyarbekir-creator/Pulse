@@ -111,6 +111,8 @@ public partial class SettingsWindow : Window
         SysDiskCheck.IsChecked = _settings.ShowDisk;
         SysGraphsCheck.IsChecked = _settings.ShowSystemGraphs;
         SysSingleColumnCheck.IsChecked = _settings.SysSingleColumn;
+        WeatherCheck.IsChecked = _settings.ShowWeather;
+        WeatherFahrenheitCheck.IsChecked = _settings.WeatherFahrenheit;
 
         // Experimental
         EmbedCheck.IsChecked = _settings.DesktopEmbedded;
@@ -157,6 +159,8 @@ public partial class SettingsWindow : Window
         WireCheck(SysDiskCheck, v => _settings.ShowDisk = v);
         WireCheck(SysGraphsCheck, v => _settings.ShowSystemGraphs = v);
         WireCheck(SysSingleColumnCheck, v => _settings.SysSingleColumn = v);
+        WireCheck(WeatherCheck, v => _settings.ShowWeather = v);
+        WireCheck(WeatherFahrenheitCheck, v => _settings.WeatherFahrenheit = v);
 
         WireCheck(EmbedCheck, v => _settings.DesktopEmbedded = v);
         WireCheck(ParticleCheck, v => _settings.TrafficParticles = v);

@@ -21,6 +21,7 @@ public partial class MainWindow : Window
 
     // Experimental subsystems.
     private readonly OutageMonitor _outage;
+    private readonly WeatherMonitor _weather = new();
     private readonly HistoryRecorder _history = new();
     private readonly AppTrafficMonitor _perApp = new();
     private readonly GeigerPlayer _geiger = new();
@@ -165,6 +166,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _settings = Settings.Load();
         _monitor.AdapterFilterId = _settings.AdapterId;
+        InitFrames();
 
         _outage = new OutageMonitor(() => _settings.PingHost);
         _outage.Recovered += duration =>
@@ -300,6 +302,7 @@ public partial class MainWindow : Window
         _geiger.SetRate(_monitor.DownloadBytesPerSec + _monitor.UploadBytesPerSec);
 
         UpdateInfoLine();
+        UpdateWeather();
         UpdateSystemStats(); // writes text + raw history samples, before the cursor advances
         UpdateGraph();       // writes down/up history and advances the shared ring cursor
         UpdateSystemGraphs();// redraws CPU/RAM/GPU sparklines from the now-advanced cursor
@@ -399,21 +402,44 @@ public partial class MainWindow : Window
         return pts;
     }
 
+    // -------------------------------------------------------------- Weather
+
+    private void UpdateWeather()
+    {
+        WeatherPanel.Visibility = _settings.ShowWeather ? Visibility.Visible : Visibility.Collapsed;
+        if (!_settings.ShowWeather)
+            return;
+
+        if (!_weather.Available)
+        {
+            WeatherTempText.Text = "—";
+            WeatherRangeText.Text = "—";
+            WeatherCityText.Text = "";
+            return;
+        }
+
+        string degree = _settings.WeatherFahrenheit ? "°F" : "°C";
+        WeatherTempText.Text = $"{_weather.CurrentTemp:0}{degree}";
+        WeatherRangeText.Text = $"H {_weather.HighTemp:0}°  L {_weather.LowTemp:0}°";
+        WeatherCityText.Text = Truncate(_weather.City, 14);
+    }
+
     // ---------------------------------------------------------- AIO monitor
 
     private void UpdateSystemStats()
     {
-        if (!_settings.ShowSystemStats)
-        {
-            SysPanel.Visibility = Visibility.Collapsed;
-            return;
-        }
-        SysPanel.Visibility = Visibility.Visible;
+        bool on = _settings.ShowSystemStats;
+        CpuPanel.Visibility = on && _settings.ShowCpu ? Visibility.Visible : Visibility.Collapsed;
+        RamPanel.Visibility = on && _settings.ShowRam ? Visibility.Visible : Visibility.Collapsed;
+        GpuPanel.Visibility = on && _settings.ShowGpu ? Visibility.Visible : Visibility.Collapsed;
+        DiskPanel.Visibility = on && _settings.ShowDisk ? Visibility.Visible : Visibility.Collapsed;
 
-        CpuPanel.Visibility = _settings.ShowCpu ? Visibility.Visible : Visibility.Collapsed;
-        RamPanel.Visibility = _settings.ShowRam ? Visibility.Visible : Visibility.Collapsed;
-        GpuPanel.Visibility = _settings.ShowGpu ? Visibility.Visible : Visibility.Collapsed;
-        DiskPanel.Visibility = _settings.ShowDisk ? Visibility.Visible : Visibility.Collapsed;
+        // This runs every tick; only re-fit the layout when something actually
+        // appeared or disappeared, instead of thrashing it once a second.
+        CheckVisibilityChanged();
+
+        if (!on)
+            return;
 
         double ramPct = _sysMonitor.RamTotalBytes > 0
             ? 100.0 * _sysMonitor.RamUsedBytes / _sysMonitor.RamTotalBytes
@@ -468,48 +494,425 @@ public partial class MainWindow : Window
             GpuLine.Points = BuildPoints(_gpuHistory, 100, GpuGraph.Width, GpuGraph.Height);
     }
 
-    /// <summary>
-    /// Rebuilds SysPanel's row/column structure and repositions the four
-    /// metric boxes: a 2x2 grid by default, or one box per row when
-    /// SysSingleColumn is on. Cheap and only runs on settings changes, so
-    /// it's simplest to fully rebuild rather than patch the existing grid.
-    /// </summary>
-    private void ApplySysPanelLayout()
+    // ------------------------------------------------------ Modular frames
+
+    // Every section is an independently positioned Canvas child, draggable by
+    // the grip dot in its lower-left corner. Positions live in settings keyed
+    // by these ids, so an arrangement survives restarts.
+    private const double FrameGap = 6;        // gap left between snapped frames
+    private const double SnapThreshold = 10;  // magnetic pull distance, px
+
+    private Dictionary<string, Border> _frames = new();
+
+    private Border? _dragFrame;
+    private string? _dragId;
+    private System.Windows.Point _dragOffset;
+
+    private bool _inRelayout;
+    private bool _relayoutPending;
+    private bool _boundsPending;
+    private string _lastVisibilitySignature = "";
+
+    private void InitFrames()
     {
-        SysPanel.RowDefinitions.Clear();
-        SysPanel.ColumnDefinitions.Clear();
-        var boxes = new[] { CpuPanel, RamPanel, GpuPanel, DiskPanel };
-
-        if (_settings.SysSingleColumn)
+        _frames = new Dictionary<string, Border>
         {
-            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            for (int i = 0; i < boxes.Length; i++)
-            {
-                if (i > 0)
-                    SysPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
-                SysPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                Grid.SetRow(boxes[i], SysPanel.RowDefinitions.Count - 1);
-                Grid.SetColumn(boxes[i], 0);
-            }
+            ["Network"] = NetworkFrame,
+            ["Cpu"] = CpuPanel,
+            ["Ram"] = RamPanel,
+            ["Gpu"] = GpuPanel,
+            ["Disk"] = DiskPanel,
+            ["Weather"] = WeatherPanel,
+        };
+
+        // Content-driven size changes (drive list growing a line, font change)
+        // must re-fit the window. Bounds only — a full relayout here would
+        // recurse, since relayout itself resizes frames.
+        foreach (var frame in _frames.Values)
+            frame.SizeChanged += (_, _) => RequestBoundsUpdate();
+    }
+
+    private static bool IsShown(UIElement e) => e.Visibility == Visibility.Visible;
+
+    /// <summary>Re-fits the layout only when the set of visible frames changed
+    /// (called every tick, so it must stay cheap and quiet otherwise).</summary>
+    private void CheckVisibilityChanged()
+    {
+        var sb = new System.Text.StringBuilder(_frames.Count);
+        foreach (var frame in _frames.Values)
+            sb.Append(IsShown(frame) ? '1' : '0');
+        string signature = sb.ToString();
+        if (signature == _lastVisibilitySignature)
+            return;
+        _lastVisibilitySignature = signature;
+        RequestRelayout();
+    }
+
+    private static double CanvasLeft(UIElement e)
+    {
+        double v = Canvas.GetLeft(e);
+        return double.IsNaN(v) ? 0 : v;
+    }
+
+    private static double CanvasTop(UIElement e)
+    {
+        double v = Canvas.GetTop(e);
+        return double.IsNaN(v) ? 0 : v;
+    }
+
+    /// <summary>Full re-fit: equalize AIO widths, seed any missing positions,
+    /// place every frame, resize the canvas. Deferred so frames have been
+    /// measured (ActualWidth/Height) before it runs.</summary>
+    private void RequestRelayout()
+    {
+        if (_relayoutPending)
+            return;
+        _relayoutPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _relayoutPending = false;
+            RelayoutFrames();
+        }));
+    }
+
+    private void RequestBoundsUpdate()
+    {
+        if (_boundsPending || _inRelayout)
+            return;
+        _boundsPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _boundsPending = false;
+            UpdateCanvasBounds();
+        }));
+    }
+
+    private void RelayoutFrames()
+    {
+        if (_inRelayout || _frames.Count == 0)
+            return;
+        _inRelayout = true;
+        try
+        {
+            ApplyEqualAioWidths();
+            SeedMissingPositions();
+            ApplyFramePositions();
+            UpdateCanvasBounds();
         }
-        else
+        finally
         {
-            // Same SharedSizeGroup on both columns forces every box to the
-            // same width: whichever box's content is widest, not just
-            // star-proportional space.
-            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SysCol" });
-            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
-            SysPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SysCol" });
-            SysPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            SysPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
-            SysPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _inRelayout = false;
+        }
+    }
 
-            (int Row, int Col)[] positions = { (0, 0), (0, 2), (2, 0), (2, 2) };
-            for (int i = 0; i < boxes.Length; i++)
+    /// <summary>
+    /// Keeps the four AIO boxes the same width. The old layout got this from
+    /// a shared-size Grid column; as independent Canvas children they need it
+    /// applied by hand. MinWidth is cleared before measuring, otherwise each
+    /// pass would ratchet the width upward and the boxes could never shrink
+    /// back after a font-size decrease.
+    /// </summary>
+    private void ApplyEqualAioWidths()
+    {
+        var boxes = new[] { CpuPanel, RamPanel, GpuPanel, DiskPanel };
+        foreach (var box in boxes)
+            box.MinWidth = 0;
+        FrameCanvas.UpdateLayout();
+
+        double widest = 0;
+        foreach (var box in boxes)
+            if (IsShown(box))
+                widest = Math.Max(widest, box.ActualWidth);
+        if (widest <= 0)
+            return;
+
+        foreach (var box in boxes)
+            box.MinWidth = widest;
+        FrameCanvas.UpdateLayout();
+    }
+
+    /// <summary>Bottom edge of the lowest positioned, visible frame.</summary>
+    private double VisibleBottom()
+    {
+        double bottom = 0;
+        foreach (var (id, frame) in _frames)
+        {
+            if (!IsShown(frame) || !_settings.FramePositions.TryGetValue(id, out var p) || p.Length < 2)
+                continue;
+            bottom = Math.Max(bottom, p[1] + frame.ActualHeight);
+        }
+        return bottom;
+    }
+
+    private void SeedMissingPositions()
+    {
+        var positions = _settings.FramePositions;
+
+        // Only seed frames that are on screen — a hidden frame has no measured
+        // size to lay out against. It gets a position the moment it appears.
+        var missing = _frames
+            .Where(kv => IsShown(kv.Value) && !positions.ContainsKey(kv.Key))
+            .Select(kv => kv.Key)
+            .ToList();
+        if (missing.Count == 0)
+            return;
+
+        if (positions.Count == 0)
+        {
+            SeedDefaultLayout();
+            return;
+        }
+
+        // Upgrade case (a frame that didn't exist when the layout was saved):
+        // park it below everything else rather than on top of something.
+        foreach (string id in missing)
+            positions[id] = new[] { 0.0, Math.Round(VisibleBottom() + FrameGap, 1) };
+    }
+
+    /// <summary>
+    /// Fresh-install arrangement, reproducing the pre-modular look: Network on
+    /// top, the AIO boxes below it in a 2x2 grid (or one column when
+    /// SysSingleColumn is set), weather last. Hidden frames are skipped and
+    /// pick up a position when they're first shown.
+    /// </summary>
+    private void SeedDefaultLayout()
+    {
+        var positions = _settings.FramePositions;
+        double y = 0;
+        double networkWidth = 0;
+
+        if (IsShown(NetworkFrame))
+        {
+            positions["Network"] = new[] { 0.0, 0.0 };
+            networkWidth = NetworkFrame.ActualWidth;
+            y = NetworkFrame.ActualHeight + FrameGap;
+        }
+
+        var aio = new (string Id, Border Frame)[]
+        {
+            ("Cpu", CpuPanel), ("Ram", RamPanel), ("Gpu", GpuPanel), ("Disk", DiskPanel)
+        };
+        double columnWidth = aio.Max(a => a.Frame.ActualWidth); // already equalized
+        int perRow = _settings.SysSingleColumn ? 1 : 2;
+
+        int placed = 0;
+        double rowTop = y;
+        double rowHeight = 0;
+        var aioIds = new List<string>();
+        foreach (var (id, frame) in aio)
+        {
+            if (!IsShown(frame))
+                continue;
+            int column = placed % perRow;
+            if (column == 0 && placed > 0)
             {
-                Grid.SetRow(boxes[i], positions[i].Row);
-                Grid.SetColumn(boxes[i], positions[i].Col);
+                rowTop += rowHeight + FrameGap;
+                rowHeight = 0;
             }
+            positions[id] = new[]
+            {
+                Math.Round(column * (columnWidth + FrameGap), 1),
+                Math.Round(rowTop, 1)
+            };
+            aioIds.Add(id);
+            rowHeight = Math.Max(rowHeight, frame.ActualHeight);
+            placed++;
+        }
+        if (placed > 0)
+            y = rowTop + rowHeight + FrameGap;
+
+        if (IsShown(WeatherPanel))
+            positions["Weather"] = new[] { 0.0, Math.Round(y, 1) };
+
+        // The old fixed layout centered the AIO block under the network card
+        // (or stretched the card over a wider block); mirror that here so the
+        // first run of the modular build looks unchanged.
+        double aioWidth = placed == 0
+            ? 0
+            : (Math.Min(placed, perRow) * (columnWidth + FrameGap)) - FrameGap;
+        double contentWidth = Math.Max(networkWidth, aioWidth);
+        if (networkWidth > 0 && contentWidth > networkWidth)
+            positions["Network"] = new[] { Math.Round((contentWidth - networkWidth) / 2, 1), 0.0 };
+        if (aioWidth > 0 && contentWidth > aioWidth)
+        {
+            double shift = Math.Round((contentWidth - aioWidth) / 2, 1);
+            foreach (string id in aioIds)
+                positions[id] = new[] { Math.Round(positions[id][0] + shift, 1), positions[id][1] };
+        }
+    }
+
+    private void ApplyFramePositions()
+    {
+        foreach (var (id, frame) in _frames)
+        {
+            if (!_settings.FramePositions.TryGetValue(id, out var p) || p.Length < 2)
+                continue;
+            Canvas.SetLeft(frame, p[0]);
+            Canvas.SetTop(frame, p[1]);
+        }
+    }
+
+    /// <summary>
+    /// A Canvas has no intrinsic size, so the window's SizeToContent has
+    /// nothing to measure until its Width/Height are set from the frames'
+    /// bounding box.
+    /// </summary>
+    private void UpdateCanvasBounds()
+    {
+        double width = 0, height = 0;
+        foreach (var frame in _frames.Values)
+        {
+            if (!IsShown(frame))
+                continue;
+            width = Math.Max(width, CanvasLeft(frame) + frame.ActualWidth);
+            height = Math.Max(height, CanvasTop(frame) + frame.ActualHeight);
+        }
+        FrameCanvas.Width = Math.Max(0, width);
+        FrameCanvas.Height = Math.Max(0, height);
+    }
+
+    /// <summary>Slides every frame so the arrangement starts at (0,0), so the
+    /// canvas can't accumulate dead space along the top or left.</summary>
+    private void NormalizePositions()
+    {
+        double minX = double.MaxValue, minY = double.MaxValue;
+        foreach (var (id, frame) in _frames)
+        {
+            if (!IsShown(frame) || !_settings.FramePositions.TryGetValue(id, out var p) || p.Length < 2)
+                continue;
+            minX = Math.Min(minX, p[0]);
+            minY = Math.Min(minY, p[1]);
+        }
+        if (minX == double.MaxValue)
+            return;
+        if (Math.Abs(minX) < 0.05 && Math.Abs(minY) < 0.05)
+            return;
+
+        // Shift hidden frames too, so they stay put relative to the rest.
+        foreach (string key in _settings.FramePositions.Keys.ToList())
+        {
+            var p = _settings.FramePositions[key];
+            if (p.Length < 2)
+                continue;
+            _settings.FramePositions[key] = new[]
+            {
+                Math.Round(p[0] - minX, 1),
+                Math.Round(p[1] - minY, 1)
+            };
+        }
+    }
+
+    private void ResetFrameLayout()
+    {
+        _settings.FramePositions.Clear();
+        RelayoutFrames();
+        _settings.Save();
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ApplyPosition));
+    }
+
+    // -------------------------------------------------------- Frame dragging
+
+    private void OnGripDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Border grip || grip.Tag is not string id)
+            return;
+        if (!_frames.TryGetValue(id, out var frame))
+            return;
+
+        _dragFrame = frame;
+        _dragId = id;
+        _dragOffset = e.GetPosition(frame); // grab point, so the frame doesn't jump
+        grip.CaptureMouse();
+
+        // Critical: the window itself handles MouseLeftButtonDown with
+        // DragMove(). Without swallowing the event here, grabbing a grip would
+        // drag the whole widget instead of the frame.
+        e.Handled = true;
+    }
+
+    // Fully qualified: WinForms also defines MouseEventArgs.
+    private void OnGripMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_dragFrame == null || _dragId == null)
+            return;
+        if (sender is not Border grip || !grip.IsMouseCaptured)
+            return;
+
+        var p = e.GetPosition(FrameCanvas);
+        double x = p.X - _dragOffset.X;
+        double y = p.Y - _dragOffset.Y;
+        (x, y) = SnapPosition(_dragId, x, y, _dragFrame.ActualWidth, _dragFrame.ActualHeight);
+
+        // Never let a frame leave the canvas, or it would be clipped by the
+        // window edge (the window is sized to the canvas).
+        x = Math.Max(0, x);
+        y = Math.Max(0, y);
+
+        Canvas.SetLeft(_dragFrame, x);
+        Canvas.SetTop(_dragFrame, y);
+        _settings.FramePositions[_dragId] = new[] { Math.Round(x, 1), Math.Round(y, 1) };
+        UpdateCanvasBounds();
+        e.Handled = true;
+    }
+
+    private void OnGripUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border grip && grip.IsMouseCaptured)
+            grip.ReleaseMouseCapture();
+
+        if (_dragFrame != null)
+        {
+            NormalizePositions();
+            ApplyFramePositions();
+            UpdateCanvasBounds();
+            _settings.Save();
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ApplyPosition));
+        }
+
+        _dragFrame = null;
+        _dragId = null;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Magnetic snapping: pulls the dragged frame's edges to any other visible
+    /// frame's edges — either butted against it (with FrameGap between) or
+    /// flush-aligned. Each axis picks its own nearest candidate independently,
+    /// so a frame can attach below one box while aligning left with another.
+    /// </summary>
+    private (double X, double Y) SnapPosition(string dragId, double x, double y, double w, double h)
+    {
+        double bestDx = double.MaxValue, bestDy = double.MaxValue;
+        double snapX = x, snapY = y;
+
+        foreach (var (id, frame) in _frames)
+        {
+            if (id == dragId || !IsShown(frame))
+                continue;
+
+            double ox = CanvasLeft(frame), oy = CanvasTop(frame);
+            double ow = frame.ActualWidth, oh = frame.ActualHeight;
+
+            Consider(ref bestDx, ref snapX, x, ox + ow + FrameGap); // butt to its right
+            Consider(ref bestDx, ref snapX, x, ox - w - FrameGap);  // butt to its left
+            Consider(ref bestDx, ref snapX, x, ox);                 // align left edges
+            Consider(ref bestDx, ref snapX, x, ox + ow - w);        // align right edges
+
+            Consider(ref bestDy, ref snapY, y, oy + oh + FrameGap); // butt underneath
+            Consider(ref bestDy, ref snapY, y, oy - h - FrameGap);  // butt on top
+            Consider(ref bestDy, ref snapY, y, oy);                 // align top edges
+            Consider(ref bestDy, ref snapY, y, oy + oh - h);        // align bottom edges
+        }
+        return (snapX, snapY);
+    }
+
+    private static void Consider(ref double best, ref double result, double actual, double candidate)
+    {
+        double distance = Math.Abs(actual - candidate);
+        if (distance < SnapThreshold && distance < best)
+        {
+            best = distance;
+            result = candidate;
         }
     }
 
@@ -711,19 +1114,22 @@ public partial class MainWindow : Window
         CPingPanel.Visibility = PingPanel.Visibility;
         InfoText.Visibility = _settings.ShowUsage ? Visibility.Visible : Visibility.Collapsed;
 
-        // AIO system monitor. The panel's own visibility (and its per-metric
-        // sub-visibility) is refreshed every tick in UpdateSystemStats, this
-        // only handles sizing/theming/backend.
+        // AIO system monitor. Per-frame visibility is refreshed every tick in
+        // UpdateSystemStats, this only handles sizing/theming/backend.
         _sysMonitor.Backend = _settings.GpuBackend;
-        SysPanel.Visibility = _settings.ShowSystemStats ? Visibility.Visible : Visibility.Collapsed;
-        ApplySysPanelLayout();
         foreach (var tb in new[]
                  {
                      CpuText, CpuTopText, RamText, RamTopText, GpuText,
                      DiskReadText, DiskWriteText, DiskSpaceText,
-                     CpuHeader, RamHeader, GpuHeader, DiskHeader
+                     CpuHeader, RamHeader, GpuHeader, DiskHeader,
+                     WeatherHeader, WeatherTempText, WeatherRangeText, WeatherCityText
                  })
             tb.FontSize = baseSize;
+
+        // Weather polls only while its frame is shown.
+        _weather.Fahrenheit = _settings.WeatherFahrenheit;
+        _weather.Enabled = _settings.ShowWeather;
+        WeatherPanel.Visibility = _settings.ShowWeather ? Visibility.Visible : Visibility.Collapsed;
 
         // Reserve width for the longest plausible "Write 999.9 MB/s" string
         // so the Disk box doesn't resize every tick as the digit count
@@ -774,6 +1180,9 @@ public partial class MainWindow : Window
         UpdateMenuChecks();
 
         RestartTimer();
+        // Font/scale changes resize the frames, so re-fit the canvas (and with
+        // it the window) before re-applying the window position.
+        RequestRelayout();
         // Re-apply position after size may have changed.
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ApplyPosition));
     }
@@ -951,6 +1360,9 @@ public partial class MainWindow : Window
             UpdateMenuChecks();
         };
 
+        var resetLayoutItem = new MenuItem { Header = "Reset Frame Layout" };
+        resetLayoutItem.Click += (_, _) => ResetFrameLayout();
+
         var exitItem = new MenuItem { Header = "Exit" };
         exitItem.Click += (_, _) => ExitApp();
 
@@ -961,6 +1373,7 @@ public partial class MainWindow : Window
         menu.Items.Add(_wpfDockMenu);
         menu.Items.Add(_wpfTopItem);
         menu.Items.Add(startupItem);
+        menu.Items.Add(resetLayoutItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(exitItem);
 
@@ -1029,6 +1442,9 @@ public partial class MainWindow : Window
         };
         _startupMenuItem.Click += (_, _) => ToggleStartup(_startupMenuItem!.Checked);
 
+        var resetLayoutItem = new WinForms.ToolStripMenuItem("Reset Frame Layout");
+        resetLayoutItem.Click += (_, _) => ResetFrameLayout();
+
         var exitItem = new WinForms.ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitApp();
 
@@ -1040,6 +1456,7 @@ public partial class MainWindow : Window
         menu.Items.Add(_topMenuItem);
         menu.Items.Add(_clickThroughMenuItem);
         menu.Items.Add(_startupMenuItem);
+        menu.Items.Add(resetLayoutItem);
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add(exitItem);
 
@@ -1267,6 +1684,7 @@ public partial class MainWindow : Window
         _outage.Dispose();
         _perApp.Dispose();
         _sysMonitor.Dispose();
+        _weather.Dispose();
         _geiger.Enabled = false;
         _embedded = false;
 

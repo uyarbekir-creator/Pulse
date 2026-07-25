@@ -101,7 +101,17 @@ public class Settings
     public bool ShowDisk { get; set; } = true;
     public GpuBackend GpuBackend { get; set; } = GpuBackend.Generic;
     public bool ShowSystemGraphs { get; set; } = false; // CPU/RAM/GPU sparklines
-    public bool SysSingleColumn { get; set; } = false; // one row per metric instead of 2x2
+    public bool SysSingleColumn { get; set; } = false; // seed layout: one column vs 2x2
+
+    // Weather frame (independent of the AIO master toggle — it isn't a
+    // system stat). Location is resolved from the public IP.
+    public bool ShowWeather { get; set; } = false;
+    public bool WeatherFahrenheit { get; set; } = false;
+
+    // Canvas position (X,Y) of each draggable frame, keyed by frame id
+    // ("Network", "Cpu", "Ram", "Gpu", "Disk", "Weather"). Empty on a fresh
+    // install — MainWindow seeds a default arrangement on first layout.
+    public Dictionary<string, double[]> FramePositions { get; set; } = new();
 
     // Which adapter to monitor. Empty = all physical adapters summed.
     public string AdapterId { get; set; } = "";
