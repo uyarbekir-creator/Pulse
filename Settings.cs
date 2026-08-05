@@ -105,7 +105,7 @@ public class Settings
 
     // Weather frame (independent of the AIO master toggle — it isn't a
     // system stat). Location is resolved from the public IP.
-    public bool ShowWeather { get; set; } = false;
+    public bool ShowWeather { get; set; } = true;
     public bool WeatherFahrenheit { get; set; } = false;
 
     // Canvas position (X,Y) of each draggable frame, keyed by frame id

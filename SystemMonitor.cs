@@ -35,6 +35,10 @@ public class SystemMonitor : IDisposable
     /// <summary>False when the selected GPU backend can't produce a value.</summary>
     public bool GpuAvailable { get; private set; }
 
+    /// <summary>Process currently doing the most 3D work (empty when idle).</summary>
+    public string TopGpuProcessName { get; private set; } = "";
+    public double TopGpuProcessPercent { get; private set; }
+
     public double DiskReadBytesPerSec { get; private set; }
     public double DiskWriteBytesPerSec { get; private set; }
 
@@ -151,10 +155,13 @@ public class SystemMonitor : IDisposable
         SampleDiskSpace();
         SampleTopProcesses();
 
+        // The generic counters are the only source of a per-process GPU
+        // breakdown (nvidia-smi reports compute clients, not graphics), so
+        // they run either way; the NVIDIA backend then overwrites just the
+        // headline percentage with its more precise figure.
+        SampleGpuGeneric();
         if (_backend == GpuBackend.Nvidia)
             SampleGpuNvidia();
-        else
-            SampleGpuGeneric();
     }
 
     // ------------------------------------------------------------------ RAM
@@ -318,6 +325,7 @@ public class SystemMonitor : IDisposable
 
             // Same filter Task Manager uses for its headline GPU number.
             var live = new HashSet<string>();
+            var byPid = new Dictionary<int, double>();
             double total = 0;
             foreach (string name in names)
             {
@@ -339,8 +347,15 @@ public class SystemMonitor : IDisposable
 
                 try
                 {
-                    total += counter.NextValue();
+                    double value = counter.NextValue();
+                    total += value;
                     live.Add(name);
+
+                    // Instance names carry the owning process ("pid_1234_luid_…"),
+                    // which is how Task Manager attributes GPU use per app.
+                    int pid = ParsePid(name);
+                    if (pid > 0)
+                        byPid[pid] = byPid.TryGetValue(pid, out double sum) ? sum + value : value;
                 }
                 catch
                 {
@@ -356,6 +371,7 @@ public class SystemMonitor : IDisposable
                 _gpuCounters.Remove(stale);
             }
 
+            UpdateTopGpuProcess(byPid);
             GpuPercent = Math.Clamp(total, 0, 100);
             GpuAvailable = true;
         }
@@ -366,6 +382,74 @@ public class SystemMonitor : IDisposable
             _gpuCategoryBroken = true;
             GpuAvailable = false;
         }
+    }
+
+    // Pid -> process name, so the busiest GPU app doesn't cost a process
+    // lookup every second. Bounded rather than expiring: pids can be recycled,
+    // but a stale name in a one-second widget readout is harmless.
+    private readonly Dictionary<int, string> _gpuPidNames = new();
+
+    /// <summary>Extracts 1234 from a "pid_1234_luid_…_engtype_3D" instance name.</summary>
+    private static int ParsePid(string instanceName)
+    {
+        const string prefix = "pid_";
+        if (!instanceName.StartsWith(prefix, StringComparison.Ordinal))
+            return -1;
+        int start = prefix.Length;
+        int end = start;
+        while (end < instanceName.Length && char.IsDigit(instanceName[end]))
+            end++;
+        return end > start && int.TryParse(instanceName.AsSpan(start, end - start), out int pid)
+            ? pid
+            : -1;
+    }
+
+    private void UpdateTopGpuProcess(Dictionary<int, double> byPid)
+    {
+        int topPid = -1;
+        double topValue = 0;
+        foreach (var (pid, value) in byPid)
+        {
+            if (value > topValue)
+            {
+                topValue = value;
+                topPid = pid;
+            }
+        }
+
+        // Below ~1% everything is noise; report idle rather than naming
+        // whichever background process twitched.
+        if (topPid <= 0 || topValue < 1.0)
+        {
+            TopGpuProcessName = "";
+            TopGpuProcessPercent = 0;
+            return;
+        }
+
+        TopGpuProcessName = ResolveProcessName(topPid);
+        TopGpuProcessPercent = Math.Clamp(topValue, 0, 100);
+    }
+
+    private string ResolveProcessName(int pid)
+    {
+        if (_gpuPidNames.TryGetValue(pid, out string? cached))
+            return cached;
+
+        string name = "";
+        try
+        {
+            using var proc = Process.GetProcessById(pid);
+            name = proc.ProcessName;
+        }
+        catch
+        {
+            // Process exited, or access denied on a protected one.
+        }
+
+        if (_gpuPidNames.Count > 256)
+            _gpuPidNames.Clear();
+        _gpuPidNames[pid] = name;
+        return name;
     }
 
     // ----------------------------------------------------------- GPU nvidia

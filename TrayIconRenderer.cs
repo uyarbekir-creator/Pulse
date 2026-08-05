@@ -10,7 +10,7 @@ namespace Pulse;
 public static class TrayIconRenderer
 {
     private static readonly Color DownColor = Color.FromArgb(129, 199, 132); // green
-    private static readonly Color UpColor = Color.FromArgb(79, 195, 247);   // blue
+    private static readonly Color UpColor = Color.FromArgb(186, 104, 200); // purple-magenta
     private static readonly SolidBrush DownBrush = new(DownColor);
     private static readonly SolidBrush UpBrush = new(UpColor);
 

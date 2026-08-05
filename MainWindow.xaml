@@ -12,6 +12,13 @@
         WindowStartupLocation="Manual">
 
     <Window.Resources>
+        <!-- Slightly heavier than Normal across the widget, for legibility on
+             a translucent background. Headers set SemiBold explicitly, and a
+             local value beats an implicit style, so they stay heavier still. -->
+        <Style TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
+
         <!-- Section-header "pulse" — a slow opacity breathe echoing the app's
              name. Shared by every section header; each header's own
              EventTrigger applies it to itself (no TargetName needed). -->
@@ -24,28 +31,41 @@
             </DoubleAnimation>
         </Storyboard>
 
-        <!-- Drag grip: a small dot in each frame's lower-left corner. Needs a
-             non-null Background (set per frame to its accent color) or it
-             won't receive mouse input. ColumnSpan covers the frame's whole
-             3-column header/content/spacer grid so Left/Bottom really means
+        <!-- Drag handle: the familiar 2x3 dot-grid "move me" symbol, in each
+             frame's lower-left corner. The Border needs a (near) transparent
+             Background to stay hit-testable across its whole area, while the
+             dots themselves carry the frame's accent color. ColumnSpan covers
+             the frame's whole 3-column grid so Left/Bottom really lands in
              the frame's corner. -->
         <Style x:Key="FrameGrip" TargetType="Border">
-            <Setter Property="Width" Value="8"/>
-            <Setter Property="Height" Value="8"/>
-            <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Grid.ColumnSpan" Value="3"/>
             <Setter Property="HorizontalAlignment" Value="Left"/>
             <Setter Property="VerticalAlignment" Value="Bottom"/>
-            <Setter Property="Margin" Value="-3,0,0,-2"/>
+            <Setter Property="Margin" Value="-4,0,0,-3"/>
+            <Setter Property="Padding" Value="2"/>
+            <Setter Property="CornerRadius" Value="3"/>
             <Setter Property="Cursor" Value="SizeAll"/>
-            <Setter Property="Opacity" Value="0.35"/>
+            <Setter Property="Opacity" Value="0.65"/>
+            <Setter Property="Background" Value="#01FFFFFF"/>
             <Setter Property="ToolTip" Value="Drag to move this frame"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="0.9"/>
+                    <Setter Property="Opacity" Value="1"/>
+                    <Setter Property="Background" Value="#26FFFFFF"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- The six dots of the drag handle, drawn once and reused. Fill is
+             set per frame so each handle matches its section's accent. -->
+        <Geometry x:Key="GripDots">
+            M0,0 A1.1,1.1 0 1 1 0,0.01 Z
+            M4.4,0 A1.1,1.1 0 1 1 4.4,0.01 Z
+            M0,3.4 A1.1,1.1 0 1 1 0,3.41 Z
+            M4.4,3.4 A1.1,1.1 0 1 1 4.4,3.41 Z
+            M0,6.8 A1.1,1.1 0 1 1 0,6.81 Z
+            M4.4,6.8 A1.1,1.1 0 1 1 4.4,6.81 Z
+        </Geometry>
     </Window.Resources>
 
     <Border x:Name="RootBorder"
@@ -76,7 +96,7 @@
             </Grid.ColumnDefinitions>
 
             <TextBlock x:Name="NetworkHeader" Grid.Column="0"
-                       Text="NET&#10;WORK" Opacity="0.75"
+                       Text="NETWORK" Opacity="0.75"
                        Foreground="#AAAAAA" FontFamily="Consolas, Segoe UI"
                        FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
                        VerticalAlignment="Center" Margin="0,0,6,0">
@@ -131,11 +151,11 @@
                     <!-- Upload -->
                     <Path x:Name="UpArrow" Grid.Row="1" Grid.Column="0"
                           Data="M 5,17 H 11 V 9 H 16 L 8,0 L 0,9 H 5 Z"
-                          Fill="#4FC3F7" Stretch="Uniform"
+                          Fill="#BA68C8" Stretch="Uniform"
                           Width="14" Height="15"
                           VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock x:Name="UpText" Grid.Row="1" Grid.Column="1"
-                               Text="0.00 Mbps" Foreground="#4FC3F7"
+                               Text="0.00 Mbps" Foreground="#BA68C8"
                                FontFamily="Consolas, Segoe UI"
                                VerticalAlignment="Center"
                                HorizontalAlignment="Right"/>
@@ -160,9 +180,9 @@
                 <TextBlock x:Name="CDownText" Text="0.00 Mbps" Foreground="#81C784"
                            FontFamily="Consolas, Segoe UI" VerticalAlignment="Center"/>
                 <Path x:Name="CUpArrow" Data="M 5,17 H 11 V 9 H 16 L 8,0 L 0,9 H 5 Z"
-                      Fill="#4FC3F7" Stretch="Uniform" Width="14" Height="15"
+                      Fill="#BA68C8" Stretch="Uniform" Width="14" Height="15"
                       VerticalAlignment="Center" Margin="12,0,4,0"/>
-                <TextBlock x:Name="CUpText" Text="0.00 Mbps" Foreground="#4FC3F7"
+                <TextBlock x:Name="CUpText" Text="0.00 Mbps" Foreground="#BA68C8"
                            FontFamily="Consolas, Segoe UI" VerticalAlignment="Center"/>
             </StackPanel>
 
@@ -196,14 +216,16 @@
                     Visibility="Collapsed" ClipToBounds="True"
                     HorizontalAlignment="Center">
                 <Polyline x:Name="DownLine" Stroke="#81C784" StrokeThickness="1.5"/>
-                <Polyline x:Name="UpLine" Stroke="#4FC3F7" StrokeThickness="1.5"/>
+                <Polyline x:Name="UpLine" Stroke="#BA68C8" StrokeThickness="1.5"/>
             </Canvas>
 
         </StackPanel>
 
-            <Border Style="{StaticResource FrameGrip}" Tag="Network" Background="#AAAAAA"
+            <Border Style="{StaticResource FrameGrip}" Tag="Network"
                     MouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove"
-                    MouseLeftButtonUp="OnGripUp"/>
+                    MouseLeftButtonUp="OnGripUp">
+                <Path Data="{StaticResource GripDots}" Fill="#AAAAAA"/>
+            </Border>
         </Grid>
         </Border>
 
@@ -241,9 +263,11 @@
                         <Polyline x:Name="CpuLine" Stroke="#FFB74D" StrokeThickness="1.2"/>
                     </Canvas>
                 </StackPanel>
-                <Border Style="{StaticResource FrameGrip}" Tag="Cpu" Background="#FFB74D"
+                <Border Style="{StaticResource FrameGrip}" Tag="Cpu"
                         MouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove"
-                        MouseLeftButtonUp="OnGripUp"/>
+                        MouseLeftButtonUp="OnGripUp">
+                    <Path Data="{StaticResource GripDots}" Fill="#FFB74D"/>
+                </Border>
             </Grid>
         </Border>
 
@@ -277,9 +301,11 @@
                         <Polyline x:Name="RamLine" Stroke="#B39DDB" StrokeThickness="1.2"/>
                     </Canvas>
                 </StackPanel>
-                <Border Style="{StaticResource FrameGrip}" Tag="Ram" Background="#B39DDB"
+                <Border Style="{StaticResource FrameGrip}" Tag="Ram"
                         MouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove"
-                        MouseLeftButtonUp="OnGripUp"/>
+                        MouseLeftButtonUp="OnGripUp">
+                    <Path Data="{StaticResource GripDots}" Fill="#B39DDB"/>
+                </Border>
             </Grid>
         </Border>
 
@@ -305,14 +331,19 @@
                     <TextBlock x:Name="GpuText" Text="—"
                                Foreground="#FF8A65" FontFamily="Consolas, Segoe UI"
                                HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="GpuTopText" Text="—" Opacity="0.75"
+                               Foreground="#FF8A65" FontFamily="Consolas, Segoe UI"
+                               HorizontalAlignment="Center"/>
                     <Canvas x:Name="GpuGraph" Height="16" Width="56" Margin="0,2,0,0"
                             Visibility="Collapsed" ClipToBounds="True">
                         <Polyline x:Name="GpuLine" Stroke="#FF8A65" StrokeThickness="1.2"/>
                     </Canvas>
                 </StackPanel>
-                <Border Style="{StaticResource FrameGrip}" Tag="Gpu" Background="#FF8A65"
+                <Border Style="{StaticResource FrameGrip}" Tag="Gpu"
                         MouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove"
-                        MouseLeftButtonUp="OnGripUp"/>
+                        MouseLeftButtonUp="OnGripUp">
+                    <Path Data="{StaticResource GripDots}" Fill="#FF8A65"/>
+                </Border>
             </Grid>
         </Border>
 
@@ -346,19 +377,24 @@
                                FontFamily="Consolas, Segoe UI" TextAlignment="Center"
                                HorizontalAlignment="Center"/>
                 </StackPanel>
-                <Border Style="{StaticResource FrameGrip}" Tag="Disk" Background="#4DB6AC"
+                <Border Style="{StaticResource FrameGrip}" Tag="Disk"
                         MouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove"
-                        MouseLeftButtonUp="OnGripUp"/>
+                        MouseLeftButtonUp="OnGripUp">
+                    <Path Data="{StaticResource GripDots}" Fill="#4DB6AC"/>
+                </Border>
             </Grid>
         </Border>
 
         <Border x:Name="WeatherPanel" CornerRadius="6" Visibility="Collapsed"
                 BorderThickness="1" BorderBrush="#4DFFF176" Padding="6,5">
             <Grid>
+                <!-- Header left, reading centered, unit picker right. The
+                     outer two columns share a width group so the temperature
+                     still lands in the frame's true middle. -->
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" SharedSizeGroup="WeatherHdr"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="WeatherEdge"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto" SharedSizeGroup="WeatherHdr"/>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="WeatherEdge"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="WeatherHeader" Grid.Column="0" Text="WEA&#10;THER" Opacity="0.75"
                            Foreground="#FFF176" FontFamily="Consolas, Segoe UI"
@@ -381,9 +417,30 @@
                                Foreground="#FFF176" FontFamily="Consolas, Segoe UI"
                                HorizontalAlignment="Center"/>
                 </StackPanel>
-                <Border Style="{StaticResource FrameGrip}" Tag="Weather" Background="#FFF176"
+
+                <!-- Unit picker: °F on top, °C below, each with its own radio
+                     dot. Switching refetches from the API rather than
+                     converting locally. -->
+                <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                            HorizontalAlignment="Right" Margin="4,0,0,0">
+                    <RadioButton x:Name="WeatherFahrenheitRadio" GroupName="WeatherUnit"
+                                 Content="°F" Foreground="#FFF176" Opacity="0.8"
+                                 FontFamily="Consolas, Segoe UI" Margin="0,0,0,2"
+                                 VerticalContentAlignment="Center"
+                                 ToolTip="Show temperatures in Fahrenheit"
+                                 Checked="OnWeatherUnitChecked"/>
+                    <RadioButton x:Name="WeatherCelsiusRadio" GroupName="WeatherUnit"
+                                 Content="°C" Foreground="#FFF176" Opacity="0.8"
+                                 FontFamily="Consolas, Segoe UI"
+                                 VerticalContentAlignment="Center"
+                                 ToolTip="Show temperatures in Celsius"
+                                 Checked="OnWeatherUnitChecked"/>
+                </StackPanel>
+                <Border Style="{StaticResource FrameGrip}" Tag="Weather"
                         MouseLeftButtonDown="OnGripDown" MouseMove="OnGripMove"
-                        MouseLeftButtonUp="OnGripUp"/>
+                        MouseLeftButtonUp="OnGripUp">
+                    <Path Data="{StaticResource GripDots}" Fill="#FFF176"/>
+                </Border>
             </Grid>
         </Border>
 

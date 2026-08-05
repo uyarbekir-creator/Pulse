@@ -43,7 +43,7 @@ public partial class MainWindow : Window
     // Only two particle colors ever occur; share one frozen brush each
     // instead of allocating a new SolidColorBrush per spawn (up to ~44/sec).
     private static readonly Media.SolidColorBrush ParticleDownBrush = FrozenBrush(0x90, 0x81, 0xC7, 0x84);
-    private static readonly Media.SolidColorBrush ParticleUpBrush = FrozenBrush(0x90, 0x4F, 0xC3, 0xF7);
+    private static readonly Media.SolidColorBrush ParticleUpBrush = FrozenBrush(0x90, 0xBA, 0x68, 0xC8);
 
     private static Media.SolidColorBrush FrozenBrush(byte a, byte r, byte g, byte b)
     {
@@ -424,6 +424,31 @@ public partial class MainWindow : Window
         WeatherCityText.Text = Truncate(_weather.City, 14);
     }
 
+    /// <summary>The °F/°C radio pair inside the weather frame.</summary>
+    private void OnWeatherUnitChecked(object sender, RoutedEventArgs e)
+    {
+        if (_syncingWeatherUnit)
+            return; // we're setting IsChecked ourselves; not a user click
+
+        bool fahrenheit = ReferenceEquals(sender, WeatherFahrenheitRadio);
+        if (fahrenheit == _settings.WeatherFahrenheit)
+            return;
+
+        _settings.WeatherFahrenheit = fahrenheit;
+        _weather.Fahrenheit = fahrenheit; // refetches in the new unit
+        _settings.Save();
+    }
+
+    private bool _syncingWeatherUnit;
+
+    private void SyncWeatherUnitRadios()
+    {
+        _syncingWeatherUnit = true;
+        WeatherFahrenheitRadio.IsChecked = _settings.WeatherFahrenheit;
+        WeatherCelsiusRadio.IsChecked = !_settings.WeatherFahrenheit;
+        _syncingWeatherUnit = false;
+    }
+
     // ---------------------------------------------------------- AIO monitor
 
     private void UpdateSystemStats()
@@ -464,7 +489,12 @@ public partial class MainWindow : Window
         }
 
         if (_settings.ShowGpu)
+        {
             GpuText.Text = _sysMonitor.GpuAvailable ? $"{gpuPct:0}%" : "—";
+            GpuTopText.Text = _sysMonitor.TopGpuProcessName.Length > 0
+                ? $"{Truncate(_sysMonitor.TopGpuProcessName, 12)} {_sysMonitor.TopGpuProcessPercent:0}%"
+                : "—";
+        }
 
         if (_settings.ShowDisk)
         {
@@ -594,7 +624,7 @@ public partial class MainWindow : Window
         _inRelayout = true;
         try
         {
-            ApplyEqualAioWidths();
+            ApplyEqualFrameSizes();
             SeedMissingPositions();
             ApplyFramePositions();
             UpdateCanvasBounds();
@@ -606,28 +636,38 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Keeps the four AIO boxes the same width. The old layout got this from
-    /// a shared-size Grid column; as independent Canvas children they need it
-    /// applied by hand. MinWidth is cleared before measuring, otherwise each
-    /// pass would ratchet the width upward and the boxes could never shrink
-    /// back after a font-size decrease.
+    /// Makes every frame the same size, so they tile cleanly wherever the user
+    /// drags them. The old layout got equal widths from a shared-size Grid
+    /// column; as independent Canvas children it has to be applied by hand.
+    /// Both minimums are cleared before measuring, otherwise each pass would
+    /// ratchet upward and frames could never shrink back after the font size
+    /// drops or a metric is switched off.
     /// </summary>
-    private void ApplyEqualAioWidths()
+    private void ApplyEqualFrameSizes()
     {
-        var boxes = new[] { CpuPanel, RamPanel, GpuPanel, DiskPanel };
-        foreach (var box in boxes)
-            box.MinWidth = 0;
+        foreach (var frame in _frames.Values)
+        {
+            frame.MinWidth = 0;
+            frame.MinHeight = 0;
+        }
         FrameCanvas.UpdateLayout();
 
-        double widest = 0;
-        foreach (var box in boxes)
-            if (IsShown(box))
-                widest = Math.Max(widest, box.ActualWidth);
-        if (widest <= 0)
+        double widest = 0, tallest = 0;
+        foreach (var frame in _frames.Values)
+        {
+            if (!IsShown(frame))
+                continue;
+            widest = Math.Max(widest, frame.ActualWidth);
+            tallest = Math.Max(tallest, frame.ActualHeight);
+        }
+        if (widest <= 0 || tallest <= 0)
             return;
 
-        foreach (var box in boxes)
-            box.MinWidth = widest;
+        foreach (var frame in _frames.Values)
+        {
+            frame.MinWidth = widest;
+            frame.MinHeight = tallest;
+        }
         FrameCanvas.UpdateLayout();
     }
 
@@ -843,16 +883,49 @@ public partial class MainWindow : Window
         double y = p.Y - _dragOffset.Y;
         (x, y) = SnapPosition(_dragId, x, y, _dragFrame.ActualWidth, _dragFrame.ActualHeight);
 
-        // Never let a frame leave the canvas, or it would be clipped by the
-        // window edge (the window is sized to the canvas).
-        x = Math.Max(0, x);
-        y = Math.Max(0, y);
-
         Canvas.SetLeft(_dragFrame, x);
         Canvas.SetTop(_dragFrame, y);
         _settings.FramePositions[_dragId] = new[] { Math.Round(x, 1), Math.Round(y, 1) };
+
+        // A frame dragged above or left of the others would fall outside the
+        // canvas and be clipped. Rather than fencing the drag in, slide the
+        // whole arrangement back into positive space and move the window by
+        // the same amount — so frames go anywhere, and nothing visibly jumps.
+        ShiftIntoView();
         UpdateCanvasBounds();
         e.Handled = true;
+    }
+
+    private void ShiftIntoView()
+    {
+        double minX = 0, minY = 0;
+        foreach (var frame in _frames.Values)
+        {
+            if (!IsShown(frame))
+                continue;
+            minX = Math.Min(minX, CanvasLeft(frame));
+            minY = Math.Min(minY, CanvasTop(frame));
+        }
+        if (minX >= -0.01 && minY >= -0.01)
+            return;
+
+        foreach (var (id, frame) in _frames)
+        {
+            // Hidden frames move too, so they keep their place in the
+            // arrangement — but only if they already have one.
+            if (!IsShown(frame) && !_settings.FramePositions.ContainsKey(id))
+                continue;
+            double nx = CanvasLeft(frame) - minX;
+            double ny = CanvasTop(frame) - minY;
+            Canvas.SetLeft(frame, nx);
+            Canvas.SetTop(frame, ny);
+            _settings.FramePositions[id] = new[] { Math.Round(nx, 1), Math.Round(ny, 1) };
+        }
+
+        // Window.Left/Top are in the same device-independent units as the
+        // canvas, so this exactly cancels the shift on screen.
+        Left += minX;
+        Top += minY;
     }
 
     private void OnGripUp(object sender, MouseButtonEventArgs e)
@@ -1119,17 +1192,22 @@ public partial class MainWindow : Window
         _sysMonitor.Backend = _settings.GpuBackend;
         foreach (var tb in new[]
                  {
-                     CpuText, CpuTopText, RamText, RamTopText, GpuText,
+                     CpuText, CpuTopText, RamText, RamTopText, GpuText, GpuTopText,
                      DiskReadText, DiskWriteText, DiskSpaceText,
                      CpuHeader, RamHeader, GpuHeader, DiskHeader,
                      WeatherHeader, WeatherTempText, WeatherRangeText, WeatherCityText
                  })
             tb.FontSize = baseSize;
 
+        // The in-frame unit picker rides a bit smaller than the reading.
+        WeatherFahrenheitRadio.FontSize = Math.Max(9, baseSize * 0.8);
+        WeatherCelsiusRadio.FontSize = WeatherFahrenheitRadio.FontSize;
+
         // Weather polls only while its frame is shown.
         _weather.Fahrenheit = _settings.WeatherFahrenheit;
         _weather.Enabled = _settings.ShowWeather;
         WeatherPanel.Visibility = _settings.ShowWeather ? Visibility.Visible : Visibility.Collapsed;
+        SyncWeatherUnitRadios();
 
         // Reserve width for the longest plausible "Write 999.9 MB/s" string
         // so the Disk box doesn't resize every tick as the digit count

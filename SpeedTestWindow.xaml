@@ -30,9 +30,9 @@
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Ping:" Foreground="#FFBBBBBB" Margin="0,3,12,3"/>
             <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PingResult" Text="—"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="↓ Download:" Foreground="#4FC3F7" Margin="0,3,12,3"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="↓ Download:" Foreground="#81C784" Margin="0,3,12,3"/>
             <TextBlock Grid.Row="1" Grid.Column="1" x:Name="DownResult" Text="—"/>
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="↑ Upload:" Foreground="#81C784" Margin="0,3,12,3"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="↑ Upload:" Foreground="#BA68C8" Margin="0,3,12,3"/>
             <TextBlock Grid.Row="2" Grid.Column="1" x:Name="UpResult" Text="—"/>
         </Grid>
 
