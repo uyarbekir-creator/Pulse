@@ -624,7 +624,7 @@ public partial class MainWindow : Window
         _inRelayout = true;
         try
         {
-            ApplyEqualFrameSizes();
+            ApplyEqualFrameWidths();
             SeedMissingPositions();
             ApplyFramePositions();
             UpdateCanvasBounds();
@@ -636,38 +636,36 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Makes every frame the same size, so they tile cleanly wherever the user
-    /// drags them. The old layout got equal widths from a shared-size Grid
-    /// column; as independent Canvas children it has to be applied by hand.
-    /// Both minimums are cleared before measuring, otherwise each pass would
+    /// Gives every frame the same width so they line up in columns wherever
+    /// the user drags them, while each keeps its natural height — matching
+    /// heights too made every frame as tall as the tallest and wasted a lot
+    /// of vertical space. The old layout got equal widths from a shared-size
+    /// Grid column; as independent Canvas children it has to be applied by
+    /// hand. MinWidth is cleared before measuring, otherwise each pass would
     /// ratchet upward and frames could never shrink back after the font size
     /// drops or a metric is switched off.
     /// </summary>
-    private void ApplyEqualFrameSizes()
+    private void ApplyEqualFrameWidths()
     {
         foreach (var frame in _frames.Values)
         {
             frame.MinWidth = 0;
-            frame.MinHeight = 0;
+            frame.MinHeight = 0; // height is content-driven; clear any earlier value
         }
         FrameCanvas.UpdateLayout();
 
-        double widest = 0, tallest = 0;
+        double widest = 0;
         foreach (var frame in _frames.Values)
         {
             if (!IsShown(frame))
                 continue;
             widest = Math.Max(widest, frame.ActualWidth);
-            tallest = Math.Max(tallest, frame.ActualHeight);
         }
-        if (widest <= 0 || tallest <= 0)
+        if (widest <= 0)
             return;
 
         foreach (var frame in _frames.Values)
-        {
             frame.MinWidth = widest;
-            frame.MinHeight = tallest;
-        }
         FrameCanvas.UpdateLayout();
     }
 
