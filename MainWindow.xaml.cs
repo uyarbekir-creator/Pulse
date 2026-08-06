@@ -627,6 +627,11 @@ public partial class MainWindow : Window
             ApplyEqualFrameWidths();
             SeedMissingPositions();
             ApplyFramePositions();
+            // A frame growing (bigger font, an extra drive line) can push it
+            // into its neighbour, so re-separate before measuring the canvas.
+            ResolveOverlaps(null);
+            NormalizePositions();
+            ApplyFramePositions();
             UpdateCanvasBounds();
         }
         finally
@@ -885,6 +890,9 @@ public partial class MainWindow : Window
         Canvas.SetTop(_dragFrame, y);
         _settings.FramePositions[_dragId] = new[] { Math.Round(x, 1), Math.Round(y, 1) };
 
+        // Frames step aside rather than stacking on top of each other.
+        ResolveOverlaps(_dragId);
+
         // A frame dragged above or left of the others would fall outside the
         // canvas and be clipped. Rather than fencing the drag in, slide the
         // whole arrangement back into positive space and move the window by
@@ -892,6 +900,70 @@ public partial class MainWindow : Window
         ShiftIntoView();
         UpdateCanvasBounds();
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Pushes frames apart until nothing overlaps, leaving the frame under the
+    /// cursor exactly where the user put it. Each overlapping frame slides out
+    /// along whichever axis needs the least movement, which reads as the other
+    /// frames stepping aside once the dragged one is far enough in. Runs live
+    /// during a drag; a handful of passes settles six frames.
+    /// </summary>
+    private void ResolveOverlaps(string? anchorId)
+    {
+        const int maxPasses = 24;
+        for (int pass = 0; pass < maxPasses; pass++)
+        {
+            bool movedAny = false;
+            foreach (var (idA, a) in _frames)
+            {
+                if (!IsShown(a))
+                    continue;
+                foreach (var (idB, b) in _frames)
+                {
+                    // Never move the anchor, and only ever push B away from A —
+                    // the pair is visited both ways, so either can end up moving.
+                    if (idA == idB || idB == anchorId || !IsShown(b))
+                        continue;
+                    if (!TryGetPushOut(a, b, out double dx, out double dy))
+                        continue;
+
+                    double nx = CanvasLeft(b), ny = CanvasTop(b);
+                    if (Math.Abs(dx) <= Math.Abs(dy))
+                        nx += dx;
+                    else
+                        ny += dy;
+
+                    Canvas.SetLeft(b, nx);
+                    Canvas.SetTop(b, ny);
+                    _settings.FramePositions[idB] = new[] { Math.Round(nx, 1), Math.Round(ny, 1) };
+                    movedAny = true;
+                }
+            }
+            if (!movedAny)
+                break;
+        }
+    }
+
+    /// <summary>Overlap test that also reports how far B must move, on each
+    /// axis, to clear A with the standard gap.</summary>
+    private static bool TryGetPushOut(Border a, Border b, out double dx, out double dy)
+    {
+        dx = dy = 0;
+        double ax = CanvasLeft(a), ay = CanvasTop(a), aw = a.ActualWidth, ah = a.ActualHeight;
+        double bx = CanvasLeft(b), by = CanvasTop(b), bw = b.ActualWidth, bh = b.ActualHeight;
+        if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0)
+            return false;
+
+        double overlapX = Math.Min(ax + aw, bx + bw) - Math.Max(ax, bx);
+        double overlapY = Math.Min(ay + ah, by + bh) - Math.Max(ay, by);
+        if (overlapX <= 0 || overlapY <= 0)
+            return false;
+
+        // Push along whichever side B is already leaning toward.
+        dx = (bx + bw / 2 >= ax + aw / 2) ? overlapX + FrameGap : -(overlapX + FrameGap);
+        dy = (by + bh / 2 >= ay + ah / 2) ? overlapY + FrameGap : -(overlapY + FrameGap);
+        return true;
     }
 
     private void ShiftIntoView()
@@ -933,6 +1005,7 @@ public partial class MainWindow : Window
 
         if (_dragFrame != null)
         {
+            ResolveOverlaps(_dragId);
             NormalizePositions();
             ApplyFramePositions();
             UpdateCanvasBounds();
@@ -1267,27 +1340,29 @@ public partial class MainWindow : Window
     {
         // Speed numbers/arrows keep their fixed green/blue and ping its
         // magenta; themes only change the card background and the info line.
-        byte bgAlpha, r, g, b;
+        byte r, g, b;
         Media.Brush info;
         switch (_settings.Theme)
         {
             case WidgetTheme.Light:
-                (bgAlpha, r, g, b) = (0xE6, 0xF5, 0xF5, 0xF5);
+                (r, g, b) = (0xF5, 0xF5, 0xF5);
                 info = new Media.SolidColorBrush(Media.Color.FromRgb(0x55, 0x55, 0x55));
                 break;
             case WidgetTheme.Black:
-                (bgAlpha, r, g, b) = (0xF2, 0x00, 0x00, 0x00);
+                (r, g, b) = (0x00, 0x00, 0x00);
                 info = new Media.SolidColorBrush(Media.Color.FromRgb(0x99, 0x99, 0x99));
                 break;
             default: // Dark
-                (bgAlpha, r, g, b) = (0xCC, 0x1E, 0x1E, 0x1E);
+                (r, g, b) = (0x1E, 0x1E, 0x1E);
                 info = new Media.SolidColorBrush(Media.Color.FromRgb(0xAA, 0xAA, 0xAA));
                 break;
         }
 
-        // Scale the background's own alpha by the opacity setting so text
-        // stays fully opaque while the card fill fades to fully transparent.
-        byte scaledAlpha = (byte)Math.Round(bgAlpha * Math.Clamp(_settings.Opacity, 0.0, 1.0));
+        // The opacity slider spans the full alpha range, so 100% is genuinely
+        // opaque and 0% fully transparent, with the text readable either way.
+        // (It used to scale each theme's own base alpha, which topped out at
+        // 0xCC, leaving the card ~20% see-through even at maximum.)
+        byte scaledAlpha = (byte)Math.Round(255 * Math.Clamp(_settings.Opacity, 0.0, 1.0));
         RootBorder.Background = new Media.SolidColorBrush(Media.Color.FromArgb(scaledAlpha, r, g, b));
         InfoText.Foreground = info;
     }

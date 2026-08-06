@@ -396,7 +396,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="WeatherEdge"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="WeatherHeader" Grid.Column="0" Text="WEA&#10;THER" Opacity="0.75"
+                <TextBlock x:Name="WeatherHeader" Grid.Column="0" Text="WEATHER" Opacity="0.75"
                            Foreground="#FFF176" FontFamily="Consolas, Segoe UI"
                            FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
                            VerticalAlignment="Center" Margin="0,0,4,0">

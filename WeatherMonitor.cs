@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 using System.Text.Json;
 using System.Windows.Threading;
+using Microsoft.Win32;
 
 namespace Pulse;
 
@@ -18,15 +20,20 @@ namespace Pulse;
 public class WeatherMonitor : IDisposable
 {
     private const int NormalMinutes = 15;
-    private const int RetryMinutes = 2;
+    private static readonly TimeSpan NormalInterval = TimeSpan.FromMinutes(NormalMinutes);
+
+    // Failures retry quickly — the usual cause is the network not being up
+    // yet (right after a resume), which clears within seconds, not minutes.
+    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
 
     private static readonly HttpClient Http = Ipv4Http.Create(10);
 
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMinutes(NormalMinutes) };
+    private readonly DispatcherTimer _timer = new() { Interval = NormalInterval };
     private bool _fetchInFlight;
     private double? _latitude;
     private double? _longitude;
     private bool _fahrenheit;
+    private bool _hooked;
 
     /// <summary>False until a fetch has succeeded; the UI shows "—".</summary>
     public bool Available { get; private set; }
@@ -64,6 +71,7 @@ public class WeatherMonitor : IDisposable
         {
             if (value && !_timer.IsEnabled)
             {
+                HookSystemEvents();
                 _timer.Start();
                 Refresh(); // don't make the user wait 15 minutes for the first reading
             }
@@ -72,6 +80,54 @@ public class WeatherMonitor : IDisposable
                 _timer.Stop();
             }
         }
+    }
+
+    /// <summary>
+    /// Resuming from sleep, or reconnecting, leaves the last fetch stale and
+    /// usually fails the one right after (the adapter isn't up yet). Both
+    /// events re-arm a quick retry so the reading recovers on its own instead
+    /// of sitting on "—" until the next quarter-hour tick.
+    /// </summary>
+    private void HookSystemEvents()
+    {
+        if (_hooked)
+            return;
+        _hooked = true;
+        try
+        {
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+        }
+        catch
+        {
+            // Non-fatal: without the hooks the timer still recovers, just slower.
+        }
+    }
+
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == PowerModes.Resume)
+            ScheduleWakeRetry();
+    }
+
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        if (e.IsAvailable)
+            ScheduleWakeRetry();
+    }
+
+    /// <summary>Retry shortly after a resume — immediately is too early, the
+    /// network stack is typically still coming up.</summary>
+    private void ScheduleWakeRetry()
+    {
+        // These events arrive on a pool thread; the timer belongs to the UI one.
+        _timer.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!_timer.IsEnabled)
+                return;
+            SetInterval(RetryInterval);
+            Refresh();
+        }));
     }
 
     private async void Refresh()
@@ -88,7 +144,7 @@ public class WeatherMonitor : IDisposable
             // Offline, DNS failure, API hiccup — keep the last known values
             // on screen rather than blanking them, and try again shortly.
             Available = false;
-            SetInterval(RetryMinutes);
+            SetInterval(RetryInterval);
         }
         finally
         {
@@ -104,7 +160,7 @@ public class WeatherMonitor : IDisposable
         if (_latitude == null || _longitude == null)
         {
             Available = false;
-            SetInterval(RetryMinutes);
+            SetInterval(RetryInterval);
             return;
         }
 
@@ -131,7 +187,7 @@ public class WeatherMonitor : IDisposable
         HighTemp = high;
         LowTemp = low;
         Available = true;
-        SetInterval(NormalMinutes);
+        SetInterval(NormalInterval);
     }
 
     /// <summary>
@@ -173,9 +229,8 @@ public class WeatherMonitor : IDisposable
         }
     }
 
-    private void SetInterval(int minutes)
+    private void SetInterval(TimeSpan wanted)
     {
-        var wanted = TimeSpan.FromMinutes(minutes);
         if (_timer.Interval == wanted)
             return;
         _timer.Interval = wanted; // restarts the countdown, which is what we want
@@ -184,5 +239,19 @@ public class WeatherMonitor : IDisposable
     public void Dispose()
     {
         _timer.Stop();
+        if (!_hooked)
+            return;
+        _hooked = false;
+        try
+        {
+            // SystemEvents keeps a strong reference; leaving this attached
+            // would keep the window alive after shutdown.
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+        }
+        catch
+        {
+            // Nothing useful to do while tearing down.
+        }
     }
 }
