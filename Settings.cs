@@ -108,9 +108,15 @@ public class Settings
     public bool ShowWeather { get; set; } = true;
     public bool WeatherFahrenheit { get; set; } = false;
 
-    // Canvas position (X,Y) of each draggable frame, keyed by frame id
-    // ("Network", "Cpu", "Ram", "Gpu", "Disk", "Weather"). Empty on a fresh
-    // install — MainWindow seeds a default arrangement on first layout.
+    // Arrangement of the draggable frames: their ids ("Network", "Cpu", "Ram",
+    // "Gpu", "Disk", "Weather") in the order they're laid out, left to right
+    // and top to bottom. Frames occupy generated slots rather than free
+    // coordinates, so this order is the entire layout state. Empty on a fresh
+    // install — MainWindow fills in the default.
+    public List<string> FrameOrder { get; set; } = new();
+
+    // Legacy free-form positions from before frames became slot-based. Only
+    // read once, to recover an existing arrangement as an order, then cleared.
     public Dictionary<string, double[]> FramePositions { get; set; } = new();
 
     // Which adapter to monitor. Empty = all physical adapters summed.

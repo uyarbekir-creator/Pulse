@@ -526,17 +526,16 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------ Modular frames
 
-    // Every section is an independently positioned Canvas child, draggable by
-    // the grip dot in its lower-left corner. Positions live in settings keyed
-    // by these ids, so an arrangement survives restarts.
-    private const double FrameGap = 6;        // gap left between snapped frames
-    private const double SnapThreshold = 10;  // magnetic pull distance, px
+    // Every section is a Canvas child placed into a generated slot. Dragging a
+    // frame by the grip in its lower-left corner swaps it with whichever frame
+    // the pointer is over — frames never move freely, so they can't overlap or
+    // drift. The resulting order lives in settings and survives restarts.
+    private const double FrameGap = 6; // gap left between frames
 
     private Dictionary<string, Border> _frames = new();
 
     private Border? _dragFrame;
     private string? _dragId;
-    private System.Windows.Point _dragOffset;
 
     private bool _inRelayout;
     private bool _relayoutPending;
@@ -625,13 +624,8 @@ public partial class MainWindow : Window
         try
         {
             ApplyEqualFrameWidths();
-            SeedMissingPositions();
-            ApplyFramePositions();
-            // A frame growing (bigger font, an extra drive line) can push it
-            // into its neighbour, so re-separate before measuring the canvas.
-            ResolveOverlaps(null);
-            NormalizePositions();
-            ApplyFramePositions();
+            EnsureFrameOrder();
+            LayoutFrames();
             UpdateCanvasBounds();
         }
         finally
@@ -674,124 +668,71 @@ public partial class MainWindow : Window
         FrameCanvas.UpdateLayout();
     }
 
-    /// <summary>Bottom edge of the lowest positioned, visible frame.</summary>
-    private double VisibleBottom()
+    /// <summary>Arrangement order used on a fresh install.</summary>
+    private static readonly string[] DefaultFrameOrder =
+        { "Network", "Cpu", "Ram", "Gpu", "Disk", "Weather" };
+
+    /// <summary>
+    /// Frames live in a flow of slots rather than at free coordinates, so the
+    /// order list is the whole layout state. Repairs it on load: fills in a
+    /// fresh default, migrates an older free-position layout by reading the
+    /// arrangement top-to-bottom, and reconciles ids added or removed by an
+    /// upgrade.
+    /// </summary>
+    private void EnsureFrameOrder()
     {
-        double bottom = 0;
-        foreach (var (id, frame) in _frames)
+        var order = _settings.FrameOrder;
+
+        if (order.Count == 0 && _settings.FramePositions.Count > 0)
         {
-            if (!IsShown(frame) || !_settings.FramePositions.TryGetValue(id, out var p) || p.Length < 2)
-                continue;
-            bottom = Math.Max(bottom, p[1] + frame.ActualHeight);
-        }
-        return bottom;
-    }
-
-    private void SeedMissingPositions()
-    {
-        var positions = _settings.FramePositions;
-
-        // Only seed frames that are on screen — a hidden frame has no measured
-        // size to lay out against. It gets a position the moment it appears.
-        var missing = _frames
-            .Where(kv => IsShown(kv.Value) && !positions.ContainsKey(kv.Key))
-            .Select(kv => kv.Key)
-            .ToList();
-        if (missing.Count == 0)
-            return;
-
-        if (positions.Count == 0)
-        {
-            SeedDefaultLayout();
-            return;
+            // Migrate from the old free-positioning layout: read the frames in
+            // reading order so the user's arrangement roughly survives.
+            order.AddRange(_settings.FramePositions
+                .Where(kv => kv.Value.Length >= 2 && _frames.ContainsKey(kv.Key))
+                .OrderBy(kv => kv.Value[1])
+                .ThenBy(kv => kv.Value[0])
+                .Select(kv => kv.Key));
+            _settings.FramePositions.Clear();
         }
 
-        // Upgrade case (a frame that didn't exist when the layout was saved):
-        // park it below everything else rather than on top of something.
-        foreach (string id in missing)
-            positions[id] = new[] { 0.0, Math.Round(VisibleBottom() + FrameGap, 1) };
+        // Drop ids this build no longer has, and append any it gained.
+        order.RemoveAll(id => !_frames.ContainsKey(id));
+        var seen = new HashSet<string>(order);
+        foreach (string id in DefaultFrameOrder)
+            if (_frames.ContainsKey(id) && seen.Add(id))
+                order.Add(id);
     }
 
     /// <summary>
-    /// Fresh-install arrangement, reproducing the pre-modular look: Network on
-    /// top, the AIO boxes below it in a 2x2 grid (or one column when
-    /// SysSingleColumn is set), weather last. Hidden frames are skipped and
-    /// pick up a position when they're first shown.
+    /// Places the visible frames into a left-to-right, top-to-bottom flow —
+    /// one column when SysSingleColumn is set, otherwise two. Because every
+    /// slot is derived from the running total, frames can never overlap and
+    /// never drift; reordering the list is the only way to move one.
     /// </summary>
-    private void SeedDefaultLayout()
+    private void LayoutFrames()
     {
-        var positions = _settings.FramePositions;
-        double y = 0;
-        double networkWidth = 0;
+        var visible = _settings.FrameOrder
+            .Where(id => _frames.TryGetValue(id, out var f) && IsShown(f))
+            .Select(id => _frames[id])
+            .ToList();
+        if (visible.Count == 0)
+            return;
 
-        if (IsShown(NetworkFrame))
-        {
-            positions["Network"] = new[] { 0.0, 0.0 };
-            networkWidth = NetworkFrame.ActualWidth;
-            y = NetworkFrame.ActualHeight + FrameGap;
-        }
-
-        var aio = new (string Id, Border Frame)[]
-        {
-            ("Cpu", CpuPanel), ("Ram", RamPanel), ("Gpu", GpuPanel), ("Disk", DiskPanel)
-        };
-        double columnWidth = aio.Max(a => a.Frame.ActualWidth); // already equalized
+        double columnWidth = visible.Max(f => f.ActualWidth); // equalized already
         int perRow = _settings.SysSingleColumn ? 1 : 2;
 
-        int placed = 0;
-        double rowTop = y;
-        double rowHeight = 0;
-        var aioIds = new List<string>();
-        foreach (var (id, frame) in aio)
+        double rowTop = 0, rowHeight = 0;
+        for (int i = 0; i < visible.Count; i++)
         {
-            if (!IsShown(frame))
-                continue;
-            int column = placed % perRow;
-            if (column == 0 && placed > 0)
+            int column = i % perRow;
+            if (column == 0 && i > 0)
             {
                 rowTop += rowHeight + FrameGap;
                 rowHeight = 0;
             }
-            positions[id] = new[]
-            {
-                Math.Round(column * (columnWidth + FrameGap), 1),
-                Math.Round(rowTop, 1)
-            };
-            aioIds.Add(id);
-            rowHeight = Math.Max(rowHeight, frame.ActualHeight);
-            placed++;
-        }
-        if (placed > 0)
-            y = rowTop + rowHeight + FrameGap;
-
-        if (IsShown(WeatherPanel))
-            positions["Weather"] = new[] { 0.0, Math.Round(y, 1) };
-
-        // The old fixed layout centered the AIO block under the network card
-        // (or stretched the card over a wider block); mirror that here so the
-        // first run of the modular build looks unchanged.
-        double aioWidth = placed == 0
-            ? 0
-            : (Math.Min(placed, perRow) * (columnWidth + FrameGap)) - FrameGap;
-        double contentWidth = Math.Max(networkWidth, aioWidth);
-        if (networkWidth > 0 && contentWidth > networkWidth)
-            positions["Network"] = new[] { Math.Round((contentWidth - networkWidth) / 2, 1), 0.0 };
-        if (aioWidth > 0 && contentWidth > aioWidth)
-        {
-            double shift = Math.Round((contentWidth - aioWidth) / 2, 1);
-            foreach (string id in aioIds)
-                positions[id] = new[] { Math.Round(positions[id][0] + shift, 1), positions[id][1] };
-        }
-    }
-
-    private void ApplyFramePositions()
-    {
-        foreach (var (id, frame) in _frames)
-        {
-            if (!_settings.FramePositions.TryGetValue(id, out var p) || p.Length < 2)
-                continue;
-            Canvas.SetLeft(frame, p[0]);
-            Canvas.SetTop(frame, p[1]);
+            Canvas.SetLeft(visible[i], column * (columnWidth + FrameGap));
+            Canvas.SetTop(visible[i], rowTop);
+            rowHeight = Math.Max(rowHeight, visible[i].ActualHeight);
         }
     }
 
@@ -814,39 +755,9 @@ public partial class MainWindow : Window
         FrameCanvas.Height = Math.Max(0, height);
     }
 
-    /// <summary>Slides every frame so the arrangement starts at (0,0), so the
-    /// canvas can't accumulate dead space along the top or left.</summary>
-    private void NormalizePositions()
-    {
-        double minX = double.MaxValue, minY = double.MaxValue;
-        foreach (var (id, frame) in _frames)
-        {
-            if (!IsShown(frame) || !_settings.FramePositions.TryGetValue(id, out var p) || p.Length < 2)
-                continue;
-            minX = Math.Min(minX, p[0]);
-            minY = Math.Min(minY, p[1]);
-        }
-        if (minX == double.MaxValue)
-            return;
-        if (Math.Abs(minX) < 0.05 && Math.Abs(minY) < 0.05)
-            return;
-
-        // Shift hidden frames too, so they stay put relative to the rest.
-        foreach (string key in _settings.FramePositions.Keys.ToList())
-        {
-            var p = _settings.FramePositions[key];
-            if (p.Length < 2)
-                continue;
-            _settings.FramePositions[key] = new[]
-            {
-                Math.Round(p[0] - minX, 1),
-                Math.Round(p[1] - minY, 1)
-            };
-        }
-    }
-
     private void ResetFrameLayout()
     {
+        _settings.FrameOrder.Clear();
         _settings.FramePositions.Clear();
         RelayoutFrames();
         _settings.Save();
@@ -864,7 +775,7 @@ public partial class MainWindow : Window
 
         _dragFrame = frame;
         _dragId = id;
-        _dragOffset = e.GetPosition(frame); // grab point, so the frame doesn't jump
+        frame.Opacity = 0.6; // the only visual cue, since the frame stays in its slot
         grip.CaptureMouse();
 
         // Critical: the window itself handles MouseLeftButtonDown with
@@ -881,121 +792,42 @@ public partial class MainWindow : Window
         if (sender is not Border grip || !grip.IsMouseCaptured)
             return;
 
-        var p = e.GetPosition(FrameCanvas);
-        double x = p.X - _dragOffset.X;
-        double y = p.Y - _dragOffset.Y;
-        (x, y) = SnapPosition(_dragId, x, y, _dragFrame.ActualWidth, _dragFrame.ActualHeight);
-
-        Canvas.SetLeft(_dragFrame, x);
-        Canvas.SetTop(_dragFrame, y);
-        _settings.FramePositions[_dragId] = new[] { Math.Round(x, 1), Math.Round(y, 1) };
-
-        // Frames step aside rather than stacking on top of each other.
-        ResolveOverlaps(_dragId);
-
-        // A frame dragged above or left of the others would fall outside the
-        // canvas and be clipped. Rather than fencing the drag in, slide the
-        // whole arrangement back into positive space and move the window by
-        // the same amount — so frames go anywhere, and nothing visibly jumps.
-        ShiftIntoView();
-        UpdateCanvasBounds();
+        // Frames never follow the cursor — they only trade slots. Whichever
+        // frame the pointer is over swaps places with the dragged one, so the
+        // layout stays a tidy flow and two frames can never overlap.
+        var point = e.GetPosition(FrameCanvas);
+        string? targetId = FrameIdAt(point, excludeId: _dragId);
+        if (targetId != null)
+        {
+            SwapFrames(_dragId, targetId);
+            LayoutFrames();
+            UpdateCanvasBounds();
+        }
         e.Handled = true;
     }
 
-    /// <summary>
-    /// Pushes frames apart until nothing overlaps, leaving the frame under the
-    /// cursor exactly where the user put it. Each overlapping frame slides out
-    /// along whichever axis needs the least movement, which reads as the other
-    /// frames stepping aside once the dragged one is far enough in. Runs live
-    /// during a drag; a handful of passes settles six frames.
-    /// </summary>
-    private void ResolveOverlaps(string? anchorId)
+    /// <summary>Visible frame whose slot contains this canvas point, if any.</summary>
+    private string? FrameIdAt(System.Windows.Point point, string? excludeId)
     {
-        const int maxPasses = 24;
-        for (int pass = 0; pass < maxPasses; pass++)
-        {
-            bool movedAny = false;
-            foreach (var (idA, a) in _frames)
-            {
-                if (!IsShown(a))
-                    continue;
-                foreach (var (idB, b) in _frames)
-                {
-                    // Never move the anchor, and only ever push B away from A —
-                    // the pair is visited both ways, so either can end up moving.
-                    if (idA == idB || idB == anchorId || !IsShown(b))
-                        continue;
-                    if (!TryGetPushOut(a, b, out double dx, out double dy))
-                        continue;
-
-                    double nx = CanvasLeft(b), ny = CanvasTop(b);
-                    if (Math.Abs(dx) <= Math.Abs(dy))
-                        nx += dx;
-                    else
-                        ny += dy;
-
-                    Canvas.SetLeft(b, nx);
-                    Canvas.SetTop(b, ny);
-                    _settings.FramePositions[idB] = new[] { Math.Round(nx, 1), Math.Round(ny, 1) };
-                    movedAny = true;
-                }
-            }
-            if (!movedAny)
-                break;
-        }
-    }
-
-    /// <summary>Overlap test that also reports how far B must move, on each
-    /// axis, to clear A with the standard gap.</summary>
-    private static bool TryGetPushOut(Border a, Border b, out double dx, out double dy)
-    {
-        dx = dy = 0;
-        double ax = CanvasLeft(a), ay = CanvasTop(a), aw = a.ActualWidth, ah = a.ActualHeight;
-        double bx = CanvasLeft(b), by = CanvasTop(b), bw = b.ActualWidth, bh = b.ActualHeight;
-        if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0)
-            return false;
-
-        double overlapX = Math.Min(ax + aw, bx + bw) - Math.Max(ax, bx);
-        double overlapY = Math.Min(ay + ah, by + bh) - Math.Max(ay, by);
-        if (overlapX <= 0 || overlapY <= 0)
-            return false;
-
-        // Push along whichever side B is already leaning toward.
-        dx = (bx + bw / 2 >= ax + aw / 2) ? overlapX + FrameGap : -(overlapX + FrameGap);
-        dy = (by + bh / 2 >= ay + ah / 2) ? overlapY + FrameGap : -(overlapY + FrameGap);
-        return true;
-    }
-
-    private void ShiftIntoView()
-    {
-        double minX = 0, minY = 0;
-        foreach (var frame in _frames.Values)
-        {
-            if (!IsShown(frame))
-                continue;
-            minX = Math.Min(minX, CanvasLeft(frame));
-            minY = Math.Min(minY, CanvasTop(frame));
-        }
-        if (minX >= -0.01 && minY >= -0.01)
-            return;
-
         foreach (var (id, frame) in _frames)
         {
-            // Hidden frames move too, so they keep their place in the
-            // arrangement — but only if they already have one.
-            if (!IsShown(frame) && !_settings.FramePositions.ContainsKey(id))
+            if (id == excludeId || !IsShown(frame))
                 continue;
-            double nx = CanvasLeft(frame) - minX;
-            double ny = CanvasTop(frame) - minY;
-            Canvas.SetLeft(frame, nx);
-            Canvas.SetTop(frame, ny);
-            _settings.FramePositions[id] = new[] { Math.Round(nx, 1), Math.Round(ny, 1) };
+            double x = CanvasLeft(frame), y = CanvasTop(frame);
+            if (point.X >= x && point.X <= x + frame.ActualWidth &&
+                point.Y >= y && point.Y <= y + frame.ActualHeight)
+                return id;
         }
+        return null;
+    }
 
-        // Window.Left/Top are in the same device-independent units as the
-        // canvas, so this exactly cancels the shift on screen.
-        Left += minX;
-        Top += minY;
+    private void SwapFrames(string a, string b)
+    {
+        var order = _settings.FrameOrder;
+        int i = order.IndexOf(a), j = order.IndexOf(b);
+        if (i < 0 || j < 0)
+            return;
+        (order[i], order[j]) = (order[j], order[i]);
     }
 
     private void OnGripUp(object sender, MouseButtonEventArgs e)
@@ -1005,9 +837,8 @@ public partial class MainWindow : Window
 
         if (_dragFrame != null)
         {
-            ResolveOverlaps(_dragId);
-            NormalizePositions();
-            ApplyFramePositions();
+            _dragFrame.Opacity = 1;
+            LayoutFrames();
             UpdateCanvasBounds();
             _settings.Save();
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ApplyPosition));
@@ -1016,48 +847,6 @@ public partial class MainWindow : Window
         _dragFrame = null;
         _dragId = null;
         e.Handled = true;
-    }
-
-    /// <summary>
-    /// Magnetic snapping: pulls the dragged frame's edges to any other visible
-    /// frame's edges — either butted against it (with FrameGap between) or
-    /// flush-aligned. Each axis picks its own nearest candidate independently,
-    /// so a frame can attach below one box while aligning left with another.
-    /// </summary>
-    private (double X, double Y) SnapPosition(string dragId, double x, double y, double w, double h)
-    {
-        double bestDx = double.MaxValue, bestDy = double.MaxValue;
-        double snapX = x, snapY = y;
-
-        foreach (var (id, frame) in _frames)
-        {
-            if (id == dragId || !IsShown(frame))
-                continue;
-
-            double ox = CanvasLeft(frame), oy = CanvasTop(frame);
-            double ow = frame.ActualWidth, oh = frame.ActualHeight;
-
-            Consider(ref bestDx, ref snapX, x, ox + ow + FrameGap); // butt to its right
-            Consider(ref bestDx, ref snapX, x, ox - w - FrameGap);  // butt to its left
-            Consider(ref bestDx, ref snapX, x, ox);                 // align left edges
-            Consider(ref bestDx, ref snapX, x, ox + ow - w);        // align right edges
-
-            Consider(ref bestDy, ref snapY, y, oy + oh + FrameGap); // butt underneath
-            Consider(ref bestDy, ref snapY, y, oy - h - FrameGap);  // butt on top
-            Consider(ref bestDy, ref snapY, y, oy);                 // align top edges
-            Consider(ref bestDy, ref snapY, y, oy + oh - h);        // align bottom edges
-        }
-        return (snapX, snapY);
-    }
-
-    private static void Consider(ref double best, ref double result, double actual, double candidate)
-    {
-        double distance = Math.Abs(actual - candidate);
-        if (distance < SnapThreshold && distance < best)
-        {
-            best = distance;
-            result = candidate;
-        }
     }
 
     // ------------------------------------------------- Experimental features

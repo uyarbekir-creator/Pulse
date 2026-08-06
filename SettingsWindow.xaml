@@ -107,7 +107,7 @@
                         <CheckBox x:Name="CompactCheck" Content="Compact one-line layout" Margin="0,14,0,0"/>
 
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="All frames share one size so they tile neatly. Grab the dotted handle at a frame's lower-left corner to drag it anywhere; it snaps to the other frames' edges. Right-click the widget → Reset Frame Layout to start over."/>
+                                   Text="All frames share one width so they line up neatly. To rearrange them, drag a frame by the dotted handle at its lower-left corner onto another frame and the two swap places — frames keep their slots, so they never overlap. Right-click the widget → Reset Frame Layout to start over."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -174,7 +174,7 @@
                         <CheckBox x:Name="SysSingleColumnCheck" Content="Single column (one row per metric)" Margin="0,6,0,0"/>
 
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="The CPU, RAM and GPU frames each name the process using the most of that resource. Single column only affects the default arrangement — it's the starting point for Reset Frame Layout."/>
+                                   Text="The CPU, RAM and GPU frames each name the process using the most of that resource. Single column stacks every frame in one column instead of two."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
