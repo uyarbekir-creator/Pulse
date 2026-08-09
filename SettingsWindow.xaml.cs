@@ -69,10 +69,6 @@ public partial class SettingsWindow : Window
         ScaleCombo.ItemsSource = new[] { "Small", "Medium", "Large" };
         ScaleCombo.SelectedIndex = (int)_settings.Scale;
 
-        // Theme
-        ThemeCombo.ItemsSource = new[] { "Dark", "Light", "Black" };
-        ThemeCombo.SelectedIndex = (int)_settings.Theme;
-
         // Adapter
         var adapters = new List<AdapterOption> { new("All adapters (automatic)", "") };
         adapters.AddRange(SpeedMonitor.GetAdapters()
@@ -136,7 +132,6 @@ public partial class SettingsWindow : Window
         RefreshCombo.SelectionChanged += OnRefreshChanged;
         UnitCombo.SelectionChanged += OnUnitChanged;
         ScaleCombo.SelectionChanged += OnScaleChanged;
-        ThemeCombo.SelectionChanged += OnThemeChanged;
         AdapterCombo.SelectionChanged += OnAdapterChanged;
         DockCombo.SelectionChanged += OnDockChanged;
         GpuBackendCombo.SelectionChanged += OnGpuBackendChanged;
@@ -238,13 +233,6 @@ public partial class SettingsWindow : Window
     {
         if (_loading) return;
         _settings.Scale = (WidgetScale)ScaleCombo.SelectedIndex;
-        Notify();
-    }
-
-    private void OnThemeChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_loading) return;
-        _settings.Theme = (WidgetTheme)ThemeCombo.SelectedIndex;
         Notify();
     }
 

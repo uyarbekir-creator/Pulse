@@ -18,13 +18,6 @@ public enum WidgetScale
     Large
 }
 
-public enum WidgetTheme
-{
-    Dark,
-    Light,
-    Black
-}
-
 public enum DockCorner
 {
     None,
@@ -74,8 +67,9 @@ public class Settings
     public double Opacity { get; set; } = 0.9;          // 0.0 - 1.0
     public double FontSize { get; set; } = 14;          // base font size in px
     public WidgetScale Scale { get; set; } = WidgetScale.Medium;
-    public WidgetTheme Theme { get; set; } = WidgetTheme.Dark;
     public bool CompactLayout { get; set; } = false;    // one-line ↓/↑ layout
+    // The look is fixed (the Nocturne palette); Opacity fades it. An older
+    // "Theme" key may still sit in settings.json — it's simply ignored.
 
     // Behaviour
     public double RefreshIntervalSeconds { get; set; } = 1.0; // 0.5, 1, 2, 5

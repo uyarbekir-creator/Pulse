@@ -558,45 +558,34 @@ public partial class MainWindow : Window
         // must re-fit the window. Bounds only — a full relayout here would
         // recurse, since relayout itself resizes frames.
         foreach (var frame in _frames.Values)
-        {
-            // Remember the per-metric accent border so the translucent look can
-            // be restored after the opaque skin replaces it with a hairline.
-            _frameAccentBrushes[frame] = frame.BorderBrush;
             frame.SizeChanged += (_, _) => RequestBoundsUpdate();
-        }
     }
 
-    // ------------------------------------------------------- Opaque skin
+    // ---------------------------------------------------------- Nocturne skin
 
-    // At full opacity the widget switches to the "Nocturne" look: a near-neutral
-    // blue-grey ground with the frames raised onto their own surface tone and
-    // separated by hairlines instead of tinted borders, 8px radii and a soft
-    // ambient shadow. Values come from that design system's tokens.
-    private static readonly Media.SolidColorBrush NocturneGround = FrozenBrush(0xFF, 0x16, 0x18, 0x26);
-    private static readonly Media.SolidColorBrush NocturneSurface = FrozenBrush(0xFF, 0x23, 0x25, 0x32);
+    // The widget's single look, taken from the "Nocturne" design system: a
+    // near-neutral blue-grey ground with the frames raised onto their own
+    // surface tone and separated by hairlines, 8px radii and a soft ambient
+    // shadow. Values are that system's tokens.
     private static readonly Media.SolidColorBrush NocturneHairline = FrozenBrush(0xFF, 0x3F, 0x42, 0x4D);
     private static readonly Media.SolidColorBrush NocturneText = FrozenBrush(0xFF, 0xE9, 0xE9, 0xED);
 
-    private readonly Dictionary<Border, Media.Brush> _frameAccentBrushes = new();
-
-    /// <summary>True once the opacity slider is all the way up.</summary>
-    private bool OpaqueSkin => _settings.Opacity >= 0.999;
-
     /// <summary>
-    /// Frames are flat and transparent while the card is translucent (the
-    /// tinted border is all that marks them out), and become raised surfaces
-    /// with a neutral hairline once it turns opaque.
+    /// Lifts each frame onto the surface tone, faded to match the card. The
+    /// hairline stays fully opaque at every setting so the frames keep their
+    /// shape even when the fills have gone completely.
     /// </summary>
-    private void ApplyFrameSkin()
+    private void ApplyFrameSkin(byte fillAlpha)
     {
-        bool opaque = OpaqueSkin;
-        double radius = (opaque ? 8 : 6) * _settings.ScaleFactor;
+        var surface = new Media.SolidColorBrush(
+            Media.Color.FromArgb(fillAlpha, 0x23, 0x25, 0x32)); // --color-surface
+        surface.Freeze();
+
+        double radius = 8 * _settings.ScaleFactor; // --radius-md
         foreach (var frame in _frames.Values)
         {
-            frame.Background = opaque ? NocturneSurface : null;
-            frame.BorderBrush = opaque
-                ? NocturneHairline
-                : (_frameAccentBrushes.TryGetValue(frame, out var accent) ? accent : frame.BorderBrush);
+            frame.Background = surface;
+            frame.BorderBrush = NocturneHairline;
             frame.CornerRadius = new CornerRadius(radius);
         }
     }
@@ -1078,8 +1067,7 @@ public partial class MainWindow : Window
 
         double pad = 7 * _settings.ScaleFactor;
         RootBorder.Padding = new Thickness(pad + 3, pad, pad + 3, pad);
-        // Nocturne's outer radius is a touch larger than the translucent card's.
-        RootBorder.CornerRadius = new CornerRadius((OpaqueSkin ? 14 : 10) * _settings.ScaleFactor);
+        RootBorder.CornerRadius = new CornerRadius(14 * _settings.ScaleFactor); // --radius-lg
 
         GraphCanvas.Width = 130 * _settings.ScaleFactor;
         GraphCanvas.Height = 26 * _settings.ScaleFactor;
@@ -1166,69 +1154,35 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ApplyPosition));
     }
 
+    /// <summary>
+    /// Paints the Nocturne look, faded by the transparency slider. Only the
+    /// fills follow the slider — the frames' hairline borders and all text
+    /// stay fully opaque, so the layout is still readable with the card wound
+    /// all the way down to invisible.
+    /// </summary>
     private void ApplyTheme()
     {
-        // Speed numbers/arrows keep their fixed green/blue and ping its
-        // magenta; themes only change the card background and the info line.
-        byte r, g, b;
-        Media.Brush info;
-        switch (_settings.Theme)
-        {
-            case WidgetTheme.Light:
-                (r, g, b) = (0xF5, 0xF5, 0xF5);
-                info = new Media.SolidColorBrush(Media.Color.FromRgb(0x55, 0x55, 0x55));
-                break;
-            case WidgetTheme.Black:
-                (r, g, b) = (0x00, 0x00, 0x00);
-                info = new Media.SolidColorBrush(Media.Color.FromRgb(0x99, 0x99, 0x99));
-                break;
-            default: // Dark
-                (r, g, b) = (0x1E, 0x1E, 0x1E);
-                info = new Media.SolidColorBrush(Media.Color.FromRgb(0xAA, 0xAA, 0xAA));
-                break;
-        }
+        double opacity = Math.Clamp(_settings.Opacity, 0.0, 1.0);
+        byte alpha = (byte)Math.Round(255 * opacity);
 
-        if (OpaqueSkin)
-        {
-            // Fully opaque: hand the card over to the Nocturne palette, which
-            // brings its own ground and text tone rather than the theme's.
-            RootBorder.Background = NocturneGround;
-            InfoText.Foreground = NocturneText;
-        }
-        else
-        {
-            // The opacity slider spans the full alpha range, so 0% is fully
-            // transparent, with the text readable either way. (It used to scale
-            // each theme's own base alpha, which topped out at 0xCC, leaving the
-            // card ~20% see-through even at maximum.)
-            byte scaledAlpha = (byte)Math.Round(255 * Math.Clamp(_settings.Opacity, 0.0, 1.0));
-            RootBorder.Background = new Media.SolidColorBrush(Media.Color.FromArgb(scaledAlpha, r, g, b));
-            InfoText.Foreground = info;
-        }
+        RootBorder.Background = new Media.SolidColorBrush(
+            Media.Color.FromArgb(alpha, 0x16, 0x18, 0x26)); // --color-bg
+        InfoText.Foreground = NocturneText;
 
-        ApplyFrameSkin();
-        ApplyCardElevation();
+        ApplyFrameSkin(alpha);
+        ApplyCardElevation(opacity);
     }
 
-    /// <summary>Nocturne lifts the card with a deeper ambient shadow; the
-    /// translucent look keeps the softer default.</summary>
-    private void ApplyCardElevation()
+    /// <summary>The card's ambient shadow fades out with its fill — a shadow
+    /// under an invisible card would be a floating smudge.</summary>
+    private void ApplyCardElevation(double opacity)
     {
         if (RootBorder.Effect is not Media.Effects.DropShadowEffect shadow)
             return;
-        if (OpaqueSkin)
-        {
-            shadow.BlurRadius = 40;
-            shadow.ShadowDepth = 16;
-            shadow.Direction = 270; // straight down, like the CSS token
-            shadow.Opacity = 0.65;
-        }
-        else
-        {
-            shadow.BlurRadius = 12;
-            shadow.ShadowDepth = 0;
-            shadow.Opacity = 0.5;
-        }
+        shadow.BlurRadius = 40;
+        shadow.ShadowDepth = 16;
+        shadow.Direction = 270; // straight down, like the CSS token
+        shadow.Opacity = 0.65 * opacity;
     }
 
     private void ApplyClickThrough()

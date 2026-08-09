@@ -101,9 +101,6 @@
                         <Label Content="Widget size"/>
                         <ComboBox x:Name="ScaleCombo"/>
 
-                        <Label Content="Theme"/>
-                        <ComboBox x:Name="ThemeCombo"/>
-
                         <CheckBox x:Name="CompactCheck" Content="Compact one-line layout" Margin="0,14,0,0"/>
 
                         <TextBlock Style="{StaticResource Hint}"
